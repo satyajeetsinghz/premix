@@ -2,86 +2,68 @@
  * @fileoverview Main admin panel dashboard with lazy-loaded tab management.
  *
  * Responsibilities:
- * - Render tabbed interface for admin operations (upload songs, manage songs, sections, banners, users)
+ * - Render tabbed interface for admin operations (upload songs, manage songs, sections, banners, users, media)
  * - Implement stateful tabs pattern: keep tabs in DOM after first visit to preserve form state and Firestore subscriptions
  * - Lazy-load tab components for performance (code splitting)
  * - Show "Coming Soon" placeholders for incomplete features (dashboard, analytics, settings)
  *
  * Related modules:
- * - UploadSongForm (src/features/admin/components/UploadSongForm.tsx) - Song upload interface
- * - SongManager (src/features/admin/components/SongManager.tsx) - Song catalog management
- * - SectionManager (src/features/sections/components/SectionManager.tsx) - Home page section management
- * - BannerManager (src/features/banner/components/BannerManager.tsx) - Hero banner management
- * - UserManagementPage (src/features/users/pages/UserManagementPage.tsx) - User administration
+ * - UploadSongForm     (src/features/admin/components/UploadSongForm.tsx)       — Song upload interface
+ * - SongManager        (src/features/admin/components/SongManager.tsx)           — Song catalog management
+ * - SectionManager     (src/features/sections/components/SectionManager.tsx)     — Home page section management
+ * - BannerManager      (src/features/banner/components/BannerManager.tsx)        — Hero banner management
+ * - UserManagementPage (src/features/users/pages/UserManagementPage.tsx)         — User administration
+ * - CloudinaryManager  (src/features/admin/components/CloudinaryManager.tsx)     — Cloudinary media asset management
  *
  * Architectural role:
- * - **Admin panel shell** - orchestrates all admin functionality
- * - Route: /admin (protected, separate shell — NOT inside MainLayout per HANDOFF_CORE.md)
+ * - Admin panel shell — orchestrates all admin functionality
+ * - Route: /admin (protected, separate shell — NOT inside MainLayout)
  * - Wrapped by ProtectedAdminRoute (requires admin role)
  *
- * Stateful tabs pattern (from HANDOFF_CORE.md):
- * - Stateful tabs: "upload", "songs", "sections", "banners", "users"
+ * Stateful tabs pattern:
+ * - Stateful tabs: "upload", "songs", "sections", "banners", "users", "media"
  * - These tabs are only mounted after their first visit, then kept in DOM hidden by CSS
  * - Preserves Firestore subscriptions and form state when switching between tabs
  * - Non-stateful tabs (dashboard, analytics, settings) use ComingSoon placeholder and unmount when inactive
- *
- * Tab activation flow:
- * 1. User clicks tab → handleTabClick updates activeTab
- * 2. useEffect detects new activeTab → adds to activatedTabs Set
- * 3. STATEFUL_TABS.map() checks if tab is in activatedTabs
- * 4. If yes, renders component with CSS (block/hidden based on activeTab)
- * 5. If no, returns null (not yet mounted)
- *
- * Performance optimizations:
- * - lazy(() => import(...)) for code splitting (reduces initial bundle size)
- * - Suspense with fallback loader for async component loading
- * - TabButton memoized with React.memo (prevents unnecessary re-renders)
- * - ComingSoon memoized (static content, no props changes)
- *
- * Security boundary:
- * - Entire page wrapped by ProtectedAdminRoute (not shown in this file)
- * - Firestore security rules enforce isActiveAdmin() for all write operations
- * - Admin role required for access (user.role === "admin" && profile?.status === "active")
  *
  * @module features/admin/pages
  */
 
 import { useState, useCallback, useEffect, memo, lazy, Suspense } from "react";
-import DashboardIcon from "@mui/icons-material/Dashboard";
-import MusicNoteIcon from "@mui/icons-material/MusicNote";
-import PeopleIcon from "@mui/icons-material/People";
-import AnalyticsIcon from "@mui/icons-material/Analytics";
-import SettingsIcon from "@mui/icons-material/Settings";
-import ViewQuiltIcon from "@mui/icons-material/ViewQuilt";
+import DashboardIcon    from "@mui/icons-material/Dashboard";
+import MusicNoteIcon    from "@mui/icons-material/MusicNote";
+import PeopleIcon       from "@mui/icons-material/People";
+import AnalyticsIcon    from "@mui/icons-material/Analytics";
+import SettingsIcon     from "@mui/icons-material/Settings";
+import ViewQuiltIcon    from "@mui/icons-material/ViewQuilt";
 import LibraryMusicIcon from "@mui/icons-material/LibraryMusic";
-import ImageIcon from "@mui/icons-material/Image";
+import ImageIcon        from "@mui/icons-material/Image";
+import CloudIcon        from "@mui/icons-material/Cloud";
 
 // Lazy-loaded admin components (code-split for performance)
-const UploadSongForm = lazy(() => import("../components/UploadSongForm"));
-const SectionManager = lazy(() =>
+const UploadSongForm     = lazy(() => import("../components/UploadSongForm"));
+const SectionManager     = lazy(() =>
   import("@/features/sections/components/SectionManager").then((m) => ({
     default: m.SectionManager,
   })),
 );
-const SongManager = lazy(() => import("../components/SongManager"));
-const BannerManager = lazy(
-  () => import("@/features/banner/components/BannerManager"),
-);
-const UserManagementPage = lazy(
-  () => import("@/features/users/pages/UserManagementPage"),
-);
+const SongManager        = lazy(() => import("../components/SongManager"));
+const BannerManager      = lazy(() => import("@/features/banner/components/BannerManager"));
+const UserManagementPage = lazy(() => import("@/features/users/pages/UserManagementPage"));
+const CloudinaryManager  = lazy(() => import("../components/CloudinaryManager"));
 
 /**
  * Admin panel tab identifiers.
  *
- * - dashboard: Analytics dashboard (Coming Soon)
- * - upload: Upload new song form
- * - songs: Manage existing songs (edit/delete)
- * - sections: Home page section management
- * - banners: Hero banner management
- * - users: User management (role/status updates)
- * - analytics: Analytics dashboard (Coming Soon)
- * - settings: Admin settings (Coming Soon)
+ * - dashboard:  Analytics overview (Coming Soon)
+ * - upload:     Upload new song form
+ * - songs:      Manage existing songs (edit/delete)
+ * - sections:   Home page section management
+ * - banners:    Hero banner management
+ * - users:      User management (role/status updates)
+ * - media:      Cloudinary media asset manager (review, copy, clear references)
+ * - analytics:  Analytics dashboard (Coming Soon)
+ * - settings:   Admin settings (Coming Soon)
  */
 type TabId =
   | "dashboard"
@@ -90,6 +72,7 @@ type TabId =
   | "sections"
   | "banners"
   | "users"
+  | "media"
   | "analytics"
   | "settings";
 
@@ -134,28 +117,30 @@ interface ComingSoonProps {
  * Tab configuration array.
  *
  * Order determines display order in navigation (left to right).
- * Dashboard first (placeholder), then upload, songs, sections, banners, users, analytics, settings.
+ * Dashboard first (placeholder), then upload, songs, sections, banners, users, media, analytics, settings.
  */
 const TABS: Tab[] = [
-  { id: "dashboard", label: "Dashboard", icon: DashboardIcon },
-  { id: "upload", label: "Upload Music", icon: MusicNoteIcon },
-  { id: "songs", label: "Manage Songs", icon: LibraryMusicIcon },
-  { id: "sections", label: "Sections", icon: ViewQuiltIcon },
-  { id: "banners", label: "Banners", icon: ImageIcon },
-  { id: "users", label: "Users", icon: PeopleIcon },
-  { id: "analytics", label: "Analytics", icon: AnalyticsIcon },
-  { id: "settings", label: "Settings", icon: SettingsIcon },
+  { id: "dashboard", label: "Dashboard",    icon: DashboardIcon    },
+  { id: "upload",    label: "Upload Music", icon: MusicNoteIcon    },
+  { id: "songs",     label: "Manage Songs", icon: LibraryMusicIcon },
+  { id: "sections",  label: "Sections",     icon: ViewQuiltIcon    },
+  { id: "banners",   label: "Banners",      icon: ImageIcon        },
+  { id: "users",     label: "Users",        icon: PeopleIcon       },
+  { id: "media",     label: "Media",        icon: CloudIcon        },
+  { id: "analytics", label: "Analytics",    icon: AnalyticsIcon    },
+  { id: "settings",  label: "Settings",     icon: SettingsIcon     },
 ];
 
 /**
  * Stateful tabs that persist in DOM after first visit.
  *
- * From HANDOFF_CORE.md:
- * "Stateful tabs are only mounted after their first visit, then kept in the DOM
- * hidden by CSS (display:none). This preserves Firestore subscriptions and form state."
+ * These tabs have meaningful state (form fields, Firestore subscriptions, loaded
+ * asset lists) that would be lost if the component unmounted on tab switch.
+ * They are kept in the DOM hidden by Tailwind's `hidden` class and only
+ * rendered for the first time when the user actually clicks the tab.
  *
- * Non-stateful tabs (dashboard, analytics, settings) use ComingSoon placeholder
- * and unmount when inactive (no state preservation needed).
+ * Non-stateful tabs (dashboard, analytics, settings) show a ComingSoon
+ * placeholder and can be unmounted freely.
  */
 const STATEFUL_TABS: TabId[] = [
   "upload",
@@ -163,13 +148,13 @@ const STATEFUL_TABS: TabId[] = [
   "sections",
   "banners",
   "users",
+  "media",
 ];
 
 /**
  * Initial active tab when admin panel loads.
  *
  * Default: "upload" (most common admin action is adding new songs).
- * Per HANDOFF_CORE.md: Stateful tabs pattern starts with upload.
  */
 const INITIAL_ACTIVE_TAB: TabId = "upload";
 
@@ -189,14 +174,14 @@ const INITIAL_ACTIVE_TAB: TabId = "upload";
  */
 const TabButton = memo(({ tab, isActive, onClick }: TabButtonProps) => {
   const Icon = tab.icon;
-
   return (
     <button
       onClick={() => onClick(tab.id)}
-      className={`flex items-center gap-2 py-4 px-1 border-b-2 transition-colors whitespace-nowrap ${isActive
+      className={`flex items-center gap-2 py-4 px-1 border-b-2 transition-colors whitespace-nowrap ${
+        isActive
           ? "border-[#fa243c] text-gray-900"
           : "border-transparent text-gray-500 hover:text-gray-700"
-        }`}
+      }`}
       aria-pressed={isActive}
       aria-label={`Switch to ${tab.label} tab`}
       role="tab"
@@ -244,11 +229,7 @@ const ComingSoon = memo(({ icon: Icon, label }: ComingSoonProps) => (
     role="region"
     aria-label={`${label} section`}
   >
-    <Icon
-      className="text-gray-300 mx-auto"
-      style={{ fontSize: 48 }}
-      aria-hidden="true"
-    />
+    <Icon className="text-gray-300 mx-auto" style={{ fontSize: 48 }} aria-hidden="true" />
     <p className="text-gray-500 mt-4">{label} coming soon</p>
     <p className="text-sm text-gray-400 mt-1">Check back later</p>
   </div>
@@ -380,31 +361,28 @@ const AdminPage = () => {
                 aria-labelledby={`tab-${id}`}
               >
                 {/* Lazy-loaded component for each stateful tab */}
-                {id === "upload" && <UploadSongForm />}
-                {id === "songs" && <SongManager />}
+                {id === "upload"   && <UploadSongForm />}
+                {id === "songs"    && <SongManager />}
                 {id === "sections" && <SectionManager />}
-                {id === "banners" && <BannerManager />}
-                {id === "users" && <UserManagementPage />}
+                {id === "banners"  && <BannerManager />}
+                {id === "users"    && <UserManagementPage />}
+                {id === "media"    && <CloudinaryManager />}
               </div>
             );
           })}
 
           {/* Non-stateful tabs: Coming Soon placeholders (unmount when inactive) */}
-          {activeTab === "dashboard" && (
-            <ComingSoon icon={DashboardIcon} label="Dashboard" />
-          )}
-          {activeTab === "analytics" && (
-            <ComingSoon icon={AnalyticsIcon} label="Analytics" />
-          )}
-          {activeTab === "settings" && (
-            <ComingSoon icon={SettingsIcon} label="Settings" />
-          )}
+          {activeTab === "dashboard" && <ComingSoon icon={DashboardIcon} label="Dashboard" />}
+          {activeTab === "analytics" && <ComingSoon icon={AnalyticsIcon} label="Analytics" />}
+          {activeTab === "settings"  && <ComingSoon icon={SettingsIcon}  label="Settings"  />}
         </>
       );
     } catch (error) {
       console.error("Error rendering tab content:", error);
       return (
-        <div role="alert">Error loading tab content. Please try again.</div>
+        <div role="alert" className="p-6 text-sm text-red-600 bg-red-50 rounded-2xl border border-red-200">
+          Error loading tab content. Please refresh the page.
+        </div>
       );
     }
   };
@@ -461,7 +439,9 @@ const AdminPage = () => {
 
       {/* Main content area with Suspense for lazy-loaded components */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        <Suspense fallback={<TabLoader />}>{renderTabContent()}</Suspense>
+        <Suspense fallback={<TabLoader />}>
+          {renderTabContent()}
+        </Suspense>
       </main>
     </div>
   );
