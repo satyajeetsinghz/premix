@@ -2,7 +2,7 @@
 
 A modern, progressive web application for music streaming and library management. Stream your favorite tracks, create personalized playlists, and enjoy seamless playback across all your devices.
 
-**Live Demo**: [beatstream-one-web.vercel.app](https://beatstream-one-web.vercel.app)
+**Live Demo**: [openbeatstream.vercel.app](https://openbeatstream.vercel.app)
 
 ---
 
@@ -536,7 +536,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 For issues, questions, or suggestions:
 - Open an issue on GitHub
 - Check existing documentation
-- Contact: support@beatstream.app
+- Contact: satyajeetsingh.in@gmail.com
 
 ---
 
