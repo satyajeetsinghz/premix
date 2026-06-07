@@ -1,186 +1,344 @@
 /**
- * ============================================================================
- * BEATSTREAM - Authentication Provider
- * ============================================================================
- * File: features/auth/context/AuthContext.tsx
+ * @fileoverview Authentication provider that syncs Firebase Auth with Firestore user data.
  *
- * ARCHITECTURE OVERVIEW:
- * - React Context Provider for authentication state management
- * - Integrates Firebase Authentication for user login/logout
- * - Manages user session persistence and profile hydration
- * - Implements last login timestamp tracking for user analytics
+ * Responsibilities:
+ * - Listen to Firebase Auth state changes (login/logout)
+ * - Ensure Firestore user document exists via createUserIfNotExists
+ * - Subscribe to real-time Firestore user document updates
+ * - Enforce access control: sign out banned users immediately
+ * - Provide user state and loading status to child components
  *
- * AUTHENTICATION FLOW:
- * 1. Provider mounts → onAuthStateChanged listener is registered
- * 2. Firebase Auth service returns current user (or null)
- * 3. If user exists: createUserIfNotExists creates/retrieves user record from Firestore
- * 4. Update lastLoginAt timestamp in Firestore for analytics
- * 5. Set loading=false and expose user state to children
- * 6. On logout: setUser(null) and loading=false
+ * Related modules:
+ * - user.service.ts - Creates Firestore user document on first sign-in
+ * - useAuth.ts (src/features/auth/hooks/useAuth.ts) - Consumer hook for auth state
+ * - SuspensionContext - Consumes user.status to show suspension UI
  *
- * FIREBASE INTEGRATION:
- * - auth: Firebase Auth instance (handles login/logout/session)
- * - db: Firestore database instance (stores user profiles)
- * - onAuthStateChanged: Real-time listener for auth state changes
- * - updateDoc: Updates lastLoginAt timestamp in users collection
- * - serverTimestamp: Ensures timestamp consistency across servers
+ * Architectural role:
+ * - **Root authentication provider** - wraps entire app in App.tsx
+ * - Single source of truth for authentication state
+ * - Real-time sync between Firebase Auth and Firestore user data
  *
- * STATE MANAGEMENT:
- * - user: IUser | null - Current authenticated user from Firestore
- * - loading: boolean - Indicates auth state is being resolved
+ * Security enforcement (from HANDOFF_CORE.md):
+ * - Banned users: Immediately signed out via signOut(auth)
+ * - Suspended users: Remain authenticated but UI shows read-only mode
+ * - Active users: Full access
  *
- * DATA FLOW:
- * 1. App mounts → AuthProvider initialization
- * 2. Firebase auth state listener triggered
- * 3. Firebase user → IUser conversion via createUserIfNotExists
- * 4. User state available to entire app via AuthContext
- * 5. All pages/components access user via useAuth hook
+ * Real-time behavior:
+ * - onAuthStateChanged: Handles login/logout events
+ * - onSnapshot: Subscribes to /users/{uid} for real-time updates
+ * - Role/status changes from admin panel reflect instantly
  *
- * ERROR HANDLING:
- * - Auth state errors logged but don't crash the app
- * - Failed lastLoginAt updates are logged as debug (non-blocking)
- * - Errors during createUserIfNotExists are caught, user set to null
- * - useAuth consumers should handle null user gracefully
+ * Auth flow:
+ * 1. Firebase Auth state changes (user logs in/out)
+ * 2. If logged in: create Firestore user document if missing
+ * 3. Update lastLoginAt timestamp
+ * 4. Subscribe to real-time user document updates
+ * 5. Enforce status: banned → immediate sign out
+ * 6. Provide user data to AuthContext consumers
  *
- * PERFORMANCE NOTES:
- * - onAuthStateChanged is fired once per auth state change (efficient)
- * - Listener is unsubscribed on component unmount (prevents memory leaks)
- * - lastLoginAt update is non-blocking (doesn't delay app load)
- * - User data is fetched once during auth resolution
+ * Error handling:
+ * - Console.error for critical failures
+ * - Console.debug for non-critical (lastLoginAt update)
+ * - Graceful fallback: set user to null on errors
  *
- * FUTURE SCALABILITY:
- * - Consider caching user profile to reduce Firestore reads
- * - Could add profile refresh mechanism if data becomes stale
- * - May need to add error boundary for auth failures
- * - Consider adding auth state persistence strategies
- *
- * ============================================================================
+ * @module features/auth/context
  */
 
 import { useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { auth } from "@/services/firebase/config";
-import { db } from "@/services/firebase/config";
+import {
+  onAuthStateChanged,
+  signOut,
+} from "firebase/auth";
+
+import {
+  doc,
+  updateDoc,
+  serverTimestamp,
+  onSnapshot,
+} from "firebase/firestore";
+
+import { auth, db } from "@/services/firebase/config";
+
 import { createUserIfNotExists } from "../services/user.service";
 import { IUser } from "../types";
 import { AuthContext } from "./AuthContextCore";
 
+/**
+ * Props for the AuthProvider component.
+ *
+ * @property children - React child components to be wrapped by the provider
+ */
 interface AuthProviderProps {
   children: React.ReactNode;
 }
 
 /**
- * Helper function to update the lastLoginAt timestamp
- * Used for tracking user login frequency and engagement
+ * Updates the user's last login timestamp in Firestore.
  *
- * FIREBASE OPERATION:
- * - Updates users/{uid} document with serverTimestamp
- * - Uses serverTimestamp to ensure accurate server-side timestamp
- * - Non-blocking: errors are logged as debug, not critical
+ * Called after successful authentication to track user activity.
+ * Used in admin User Management page (lastLoginAt column).
  *
- * @param uid - Firebase user ID
- * @returns Promise that resolves when update is complete
+ * Why console.debug instead of console.error?
+ * - This update is non-critical for authentication flow
+ * - Failure should not prevent user from accessing the app
+ * - Debugs help with troubleshooting without spamming production logs
+ *
+ * @param uid - User ID (Firebase Auth UID)
+ * @returns Promise that resolves when update completes (silent failure on error)
  */
-const updateLastLoginTimestamp = async (uid: string): Promise<void> => {
+const updateLastLoginTimestamp = async (
+  uid: string,
+): Promise<void> => {
   try {
     await updateDoc(doc(db, "users", uid), {
       lastLoginAt: serverTimestamp(),
     });
   } catch (error) {
-    // Non-critical error: timestamp tracking failure doesn't prevent app usage
-    console.debug("Failed to update lastLoginAt timestamp", error);
+    console.debug(
+      "[AuthContext] Failed to update lastLoginAt",
+      error,
+    );
   }
 };
 
 /**
- * AuthProvider Component
+ * AuthProvider - Root authentication provider for BeatStream.
  *
- * RESPONSIBILITY:
- * - Initialize Firebase auth listener on mount
- * - Manage auth state (user, loading)
- * - Convert Firebase user to IUser application model
- * - Provide auth state to entire app via Context
- * - Track user logins for analytics
+ * Provider hierarchy placement (from App.tsx):
+ * ```
+ * App
+ * └── AuthProvider
+ *     └── PlayerProvider
+ *         └── SuspensionProvider
+ *             └── AppContent
+ * ```
  *
- * STATE:
- * - user: IUser | null - Authenticated user object or null
- * - loading: boolean - True while auth state is being resolved
+ * AuthProvider must be outermost because other providers depend on user data.
  *
- * LIFECYCLE:
- * 1. Component mounts
- * 2. useEffect registers onAuthStateChanged listener
- * 3. Firebase returns current auth state
- * 4. If user: fetch full profile from Firestore and update login time
- * 5. Set loading=false to indicate ready
- * 6. Listener cleanup on unmount
+ * State management:
+ * - user: Current authenticated user's Firestore data (IUser | null)
+ * - loading: True while auth state is being determined (initial load)
  *
- * @param children - React components to provide auth context to
- * @returns Provider component that wraps children with auth state
+ * Real-time subscriptions:
+ * 1. onAuthStateChanged - Firebase Auth state (login/logout)
+ * 2. onSnapshot - Firestore user document (role/status changes)
+ *
+ * Cleanup:
+ * - Unsubscribes from both listeners on unmount
+ * - Prevents memory leaks and stale subscriptions
+ *
+ * @param props - AuthProviderProps
+ * @returns AuthContext provider with user and loading state
  */
 export const AuthProvider = ({
   children,
 }: AuthProviderProps): React.ReactElement => {
-  // State for authenticated user from Firestore
+  /**
+   * Current authenticated user's Firestore data.
+   * Null when user is not authenticated or banned.
+   */
   const [user, setUser] = useState<IUser | null>(null);
 
-  // State for auth resolution loading indicator
+  /**
+   * Loading state - true during initial auth resolution.
+   * AppContent shows AnimatedSpinner while loading = true.
+   */
   const [loading, setLoading] = useState(true);
 
-  /**
-   * Authentication State Listener
-   *
-   * Sets up Firebase auth listener that fires on:
-   * - Initial provider mount (checks for existing session)
-   * - User login (Firebase auth succeeds)
-   * - User logout (Firebase auth clears)
-   * - Session expiration
-   *
-   * Process:
-   * 1. Listen for Firebase auth changes
-   * 2. If user logged in:
-   *    a. Create/retrieve user profile from Firestore
-   *    b. Update lastLoginAt timestamp for analytics
-   *    c. Set user state and loading=false
-   * 3. If user logged out:
-   *    a. Set user=null and loading=false
-   * 4. On error: log and set user=null (fail gracefully)
-   * 5. Cleanup: unsubscribe listener on unmount
-   */
   useEffect(() => {
-    // Register real-time listener for Firebase auth state changes
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      try {
-        if (firebaseUser) {
-          // User is authenticated: fetch or create Firestore profile
-          const appUser = await createUserIfNotExists(firebaseUser);
+    /**
+     * Reference to Firestore user document snapshot unsubscribe function.
+     * Stored in variable to properly clean up when auth state changes.
+     */
+    let unsubscribeUserSnapshot:
+      | (() => void)
+      | undefined;
 
-          // Update user's last login timestamp for engagement tracking
-          await updateLastLoginTimestamp(firebaseUser.uid);
+    /**
+     * Firebase Auth state listener.
+     * Fires on:
+     * - App initial load (checks existing session)
+     * - User signs in
+     * - User signs out
+     */
+    const unsubscribeAuth = onAuthStateChanged(
+      auth,
+      async (firebaseUser) => {
+        try {
+          /**
+           * Scenario 1: User is logged out
+           */
+          if (!firebaseUser) {
+            // Clean up existing Firestore listener if any
+            if (unsubscribeUserSnapshot) {
+              unsubscribeUserSnapshot();
+              unsubscribeUserSnapshot = undefined;
+            }
 
-          // Update app state with user data
-          setUser(appUser);
-        } else {
-          // User is not authenticated
+            setUser(null);
+            setLoading(false);
+            return;
+          }
+
+          /**
+           * Scenario 2: User is logged in
+           *
+           * Steps:
+           * 1. Create Firestore user document if it doesn't exist
+           * 2. Update lastLoginAt timestamp (non-critical)
+           * 3. Subscribe to real-time user document updates
+           */
+
+          // Step 1: Ensure Firestore user document exists
+          await createUserIfNotExists(
+            firebaseUser,
+          );
+
+          // Step 2: Update login analytics (non-critical, silent failure)
+          await updateLastLoginTimestamp(
+            firebaseUser.uid,
+          );
+
+          const userRef = doc(
+            db,
+            "users",
+            firebaseUser.uid,
+          );
+
+          /**
+           * Step 3: Real-time Firestore listener
+           *
+           * This subscription ensures:
+           * - Role changes (user ↔ admin) reflect instantly
+           * - Status changes (suspended) reflect instantly
+           * - Profile updates (name/photo) reflect instantly
+           * - No page refresh needed for admin actions
+           *
+           * Security enforcement:
+           * - Banned users are immediately signed out
+           * - Suspended users remain authenticated but UI shows limited mode
+           */
+          unsubscribeUserSnapshot =
+            onSnapshot(
+              userRef,
+              async (snapshot) => {
+                try {
+                  // Document missing (should not happen for authenticated user)
+                  if (!snapshot.exists()) {
+                    console.warn(
+                      "[AuthContext] User document missing",
+                    );
+
+                    setUser(null);
+                    return;
+                  }
+
+                  const latestUser =
+                    snapshot.data() as IUser;
+
+                  /**
+                   * Banned user enforcement.
+                   *
+                   * When admin sets status = "banned":
+                   * 1. This listener detects the change
+                   * 2. Immediately signs out the user
+                   * 3. Clears user state
+                   * 4. User sees BlockedUserScreen on next render
+                   */
+                  if (
+                    latestUser.status ===
+                    "banned"
+                  ) {
+                    console.warn(
+                      "[AuthContext] User banned. Signing out.",
+                    );
+
+                    await signOut(auth);
+
+                    setUser(null);
+                    return;
+                  }
+
+                  /**
+                   * Suspended user warning.
+                   *
+                   * User remains authenticated but:
+                   * - Firestore security rules block writes (isWriteable() = false)
+                   * - SuspensionContext shows limited mode UI
+                   * - Write attempts trigger toast notifications
+                   */
+                  if (
+                    latestUser.status ===
+                    "suspended"
+                  ) {
+                    console.warn(
+                      "[AuthContext] User suspended.",
+                    );
+                  }
+
+                  // Update state with latest user data
+                  setUser(latestUser);
+                  setLoading(false);
+                } catch (error) {
+                  console.error(
+                    "[AuthContext] Snapshot processing error",
+                    error,
+                  );
+
+                  // Fallback: clear user state on error
+                  setUser(null);
+                  setLoading(false);
+                }
+              },
+              (error) => {
+                console.error(
+                  "[AuthContext] User listener error",
+                  error,
+                );
+
+                // Fallback: clear user state on listener error
+                setUser(null);
+                setLoading(false);
+              },
+            );
+        } catch (error) {
+          console.error(
+            "Error resolving auth state:",
+            error,
+          );
+
+          // Fallback: clear user state on any error
           setUser(null);
+          setLoading(false);
         }
-      } catch (error) {
-        // Handle auth state resolution errors gracefully
-        console.error("Error resolving auth state:", error);
-        setUser(null);
-      } finally {
-        // Mark auth resolution as complete
-        setLoading(false);
+      },
+    );
+
+    /**
+     * Cleanup function.
+     *
+     * Unsubscribes from both:
+     * 1. Firebase Auth state listener
+     * 2. Firestore user document listener (if active)
+     *
+     * Prevents memory leaks when AuthProvider unmounts.
+     */
+    return () => {
+      unsubscribeAuth();
+
+      if (unsubscribeUserSnapshot) {
+        unsubscribeUserSnapshot();
       }
-    });
+    };
+  }, []); // Empty dependency array: run once on mount
 
-    // Cleanup listener on unmount to prevent memory leaks
-    return () => unsubscribe();
-  }, []);
-
-  // Provide auth state to all child components
   return (
-    <AuthContext.Provider value={{ user, loading }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
