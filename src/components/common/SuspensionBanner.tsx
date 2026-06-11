@@ -146,7 +146,7 @@ const SuspensionBanner = () => {
           <div className="flex items-center gap-[6px] flex-shrink-0">
             {/* Appeal button - opens support email in default mail client */}
             <a
-              href="mailto:support@beatstream.com"
+              href="mailto:support@Premix.com"
               className="inline-flex items-center justify-center px-4 py-1 rounded-[980px] text-[12px] font-medium cursor-pointer border-none no-underline whitespace-nowrap transition-all duration-150 active:scale-[0.96] bg-[#fa243c] text-white hover:bg-[#ef465c]"
             >
               Appeal

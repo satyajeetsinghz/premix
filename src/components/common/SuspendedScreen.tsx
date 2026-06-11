@@ -180,7 +180,7 @@ const SuspendedScreen = ({ reason }: Props) => {
 
         {/* Direct appeal link - reduces friction for wrongly suspended users */}
         <a
-          href="mailto:support@beatstream.com"
+          href="mailto:support@Premix.com"
           className="text-[17px] font-medium text-[#fa243c] whitespace-nowrap shrink-0 pb-3 hover:opacity-65 transition-opacity"
         >
           Appeal decision ›
@@ -209,7 +209,7 @@ const SuspendedScreen = ({ reason }: Props) => {
           description="Think this is a mistake? Reach our team and we'll review your account."
           buttonLabel="Get help"
           onClick={() => {
-            window.location.href = "mailto:support@beatstream.com";
+            window.location.href = "mailto:support@Premix.com";
           }}
           delay="55ms"
         />
@@ -228,7 +228,7 @@ const SuspendedScreen = ({ reason }: Props) => {
 
       {/* Footer attribution - consistent with blocked screen for brand cohesion */}
       <p className="mt-7 text-xs text-[#aeaeb2] tracking-[0.2px] animate-[fadeUp_0.4s_0.2s_cubic-bezier(0.22,1,0.36,1)_both]">
-        BeatStream · Limited Access Mode
+        Premix · Limited Access Mode
       </p>
 
       <style>{`

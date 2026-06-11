@@ -32,7 +32,7 @@ import { useState, useEffect } from "react";
 /**
  * React hook that subscribes to a CSS media query and returns its current match status.
  *
- * Common breakpoint queries used in BeatStream (from HANDOFF_CORE.md):
+ * Common breakpoint queries used in Premix (from HANDOFF_CORE.md):
  * - `(min-width: 1180px)` - Desktop sidebar visible threshold
  * - `(max-width: 1179px)` - Mobile navigation visible threshold
  * - `(min-width: 768px)` - Tablet breakpoint for grid layouts

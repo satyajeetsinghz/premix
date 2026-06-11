@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * BEATSTREAM - Application Router Configuration
+ * Premix - Application Router Configuration
  * ============================================================================
  * File: app/router.tsx
  *

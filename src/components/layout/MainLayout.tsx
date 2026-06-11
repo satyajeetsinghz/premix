@@ -1,5 +1,5 @@
 /**
- * @fileoverview Primary layout wrapper for authenticated BeatStream pages.
+ * @fileoverview Primary layout wrapper for authenticated Premix pages.
  *
  * Responsibilities:
  * - Orchestrate responsive layout switching between desktop sidebar and mobile navigation

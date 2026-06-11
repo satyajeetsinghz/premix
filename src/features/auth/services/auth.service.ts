@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * BEATSTREAM - Authentication Service
+ * Premix - Authentication Service
  * ============================================================================
  * File: features/auth/services/auth.service.ts
  *

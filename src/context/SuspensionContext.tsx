@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * BEATSTREAM - User Suspension Context Provider
+ * Premix - User Suspension Context Provider
  * ============================================================================
  * File: context/SuspensionContext.tsx
  *

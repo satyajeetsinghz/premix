@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * BEATSTREAM - Protected Admin Route Component
+ * Premix - Protected Admin Route Component
  * ============================================================================
  * File: features/admin/components/ProtectedAdminRoute.tsx
  *

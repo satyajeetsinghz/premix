@@ -4,82 +4,151 @@
 <head>
   <meta charset="UTF-8" />
 
-  <!--
-    viewport-fit=cover is REQUIRED for env(safe-area-inset-bottom) to work
-    in MobileNav and PlayerBar on iPhones with notch / Dynamic Island.
-    Without it, the bottom safe area inset is always 0 and content hides
-    behind the home indicator bar.
-  -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <!-- Responsive + iOS Safe Area -->
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+  />
 
-  <!-- ── Primary meta ──────────────────────────────────────────────────── -->
-  <title>BeatStream</title>
-  <meta name="description"        content="BeatStream — stream, discover, and manage your music library." />
-  <meta name="application-name"   content="BeatStream" />
-  <meta name="author"             content="BeatStream" />
-  <meta name="robots"             content="noindex, nofollow" />
+  <!-- Primary SEO -->
+  <title>Premix - Web Player: Listen Your Way</title>
 
-  <!-- ── Theme colour ──────────────────────────────────────────────────── -->
-  <!--
-    Colours the browser chrome bar on Android Chrome and Samsung Internet.
-    Matches the primary brand red used throughout the app.
-  -->
-  <meta name="theme-color" content="#fa243c" />
+  <meta
+    name="description"
+    content="Premix is a modern music streaming platform for discovering, organizing, and enjoying your favorite music."
+  />
 
-  <!-- ── PWA manifest ──────────────────────────────────────────────────── -->
-  <!--
-    Enables "Add to Home Screen" install prompt on Android / Chrome / Edge.
-    See public/manifest.json for full config:
-      display: standalone, orientation: portrait-primary,
-      shortcuts: /library + /liked, icons: 72→512px
-  -->
-  <link rel="manifest" href="public/manifest.json" />
+  <meta
+    name="keywords"
+    content="Premix, music streaming, playlists, songs, artists, audio, music player"
+  />
 
-  <!-- ── Favicon ───────────────────────────────────────────────────────── -->
-  <link rel="icon"             type="image/png" sizes="32x32" href="/icons/icon-32x32.png" />
-  <link rel="icon"             type="image/png" sizes="16x16" href="/icons/icon-16x16.png" />
-  <link rel="shortcut icon"    href="/icons/icon-192x192.png" />
+  <meta
+    name="author"
+    content="Satyajeet Singh"
+  />
 
-  <!-- ── Apple / iOS Safari PWA ────────────────────────────────────────── -->
-  <!--
-    apple-mobile-web-app-capable:          launches full-screen when added to home screen (no Safari chrome)
-    apple-mobile-web-app-status-bar-style: "default" = white status bar (legible over the light app chrome)
-    apple-mobile-web-app-title:            label shown under the home screen icon
-    apple-touch-icon:                      home screen icon; 180px is the canonical size for modern iPhones;
-                                           152px covers older iPads
-  -->
-  <meta name="apple-mobile-web-app-capable"          content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <meta name="apple-mobile-web-app-title"            content="BeatStream" />
-  <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180x180.png" />
-  <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png" />
+  <meta
+    name="application-name"
+    content="Premix"
+  />
 
-  <!-- ── Windows / Edge tiles ──────────────────────────────────────────── -->
-  <!--
-    Pins the app to the Windows Start menu / taskbar with the brand colour.
-    TileImage should be 144×144px with a transparent background.
-  -->
-  <meta name="msapplication-TileColor" content="#fa243c" />
-  <meta name="msapplication-TileImage" content="/icons/icon-144x144.png" />
-  <meta name="msapplication-config"    content="none" />
+  <meta
+    name="robots"
+    content="noindex, nofollow"
+  />
 
-  <!-- ── Open Graph — correct link previews on Slack / iMessage / Discord -->
-  <meta property="og:type"        content="website" />
-  <meta property="og:title"       content="BeatStream" />
-  <meta property="og:description" content="Stream, discover, and manage your music library." />
-  <meta property="og:image"       content="/icons/icon-512x512.png" />
-  <meta property="og:site_name"   content="BeatStream" />
+  <!-- Theme -->
+  <meta
+    name="theme-color"
+    content="#fa243c"
+  />
 
-  <!-- ── Twitter / X card ──────────────────────────────────────────────── -->
-  <meta name="twitter:card"        content="summary" />
-  <meta name="twitter:title"       content="BeatStream" />
-  <meta name="twitter:description" content="Stream, discover, and manage your music library." />
-  <meta name="twitter:image"       content="/icons/icon-512x512.png" />
+  <!-- PWA -->
+  <link
+    rel="manifest"
+    href="/manifest.json"
+  />
+
+  <!-- Favicons -->
+  <link
+    rel="icon"
+    type="image/png"
+    sizes="32x32"
+    href="/icons/icon-32x32.png"
+  />
+
+  <link
+    rel="icon"
+    type="image/png"
+    sizes="16x16"
+    href="/icons/icon-16x16.png"
+  />
+
+  <link
+    rel="apple-touch-icon"
+    sizes="180x180"
+    href="/icons/icon-180x180.png"
+  />
+
+  <!-- Apple PWA -->
+  <meta
+    name="apple-mobile-web-app-capable"
+    content="yes"
+  />
+
+  <meta
+    name="apple-mobile-web-app-status-bar-style"
+    content="default"
+  />
+
+  <meta
+    name="apple-mobile-web-app-title"
+    content="Premix"
+  />
+
+  <!-- Microsoft -->
+  <meta
+    name="msapplication-TileColor"
+    content="#fa243c"
+  />
+
+  <!-- Open Graph -->
+  <meta
+    property="og:type"
+    content="website"
+  />
+
+  <meta
+    property="og:title"
+    content="Premix"
+  />
+
+  <meta
+    property="og:description"
+    content="Discover, stream, and enjoy your favorite music with Premix."
+  />
+
+  <meta
+    property="og:image"
+    content="/icons/icon-512x512.png"
+  />
+
+  <meta
+    property="og:site_name"
+    content="Premix"
+  />
+
+  <!-- Twitter / X -->
+  <meta
+    name="twitter:card"
+    content="summary"
+  />
+
+  <meta
+    name="twitter:title"
+    content="Premix"
+  />
+
+  <meta
+    name="twitter:description"
+    content="Discover, stream, and enjoy your favorite music with Premix."
+  />
+
+  <meta
+    name="twitter:image"
+    content="/icons/icon-512x512.png"
+  />
+
 </head>
 
 <body>
   <div id="root"></div>
-  <script type="module" src="/src/main.tsx"></script>
+
+  <script
+    type="module"
+    src="/src/main.tsx"
+  ></script>
 </body>
 
 </html>

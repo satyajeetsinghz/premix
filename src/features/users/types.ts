@@ -94,7 +94,7 @@
  * {
  *   uid: "ghi789",
  *   name: "Admin User",
- *   email: "admin@beatstream.com",
+ *   email: "admin@Premix.com",
  *   role: "admin",
  *   status: "active",
  *   createdAt: Timestamp { seconds: 1704067200 }

@@ -217,7 +217,7 @@ const SuspensionToast = () => {
         {/* Action buttons container */}
         <div className="st-right">
           {/* Appeal link - opens support email (same as banner/blocked screen) */}
-          <a href="mailto:support@beatstream.com" className="st-appeal">
+          <a href="mailto:support@Premix.com" className="st-appeal">
             Appeal
           </a>
 

@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * BEATSTREAM - Authentication Context Core
+ * Premix - Authentication Context Core
  * ============================================================================
  * File: features/auth/context/AuthContextCore.tsx
  *

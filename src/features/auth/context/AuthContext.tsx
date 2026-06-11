@@ -102,7 +102,7 @@ const updateLastLoginTimestamp = async (
 };
 
 /**
- * AuthProvider - Root authentication provider for BeatStream.
+ * AuthProvider - Root authentication provider for Premix.
  *
  * Provider hierarchy placement (from App.tsx):
  * ```

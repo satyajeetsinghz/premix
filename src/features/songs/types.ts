@@ -40,7 +40,7 @@ import { Timestamp } from "firebase/firestore";
 /**
  * ISong - Firestore document structure for songs in the music catalog.
  *
- * Songs are the core content type in BeatStream. They are displayed
+ * Songs are the core content type in Premix. They are displayed
  * on the home page (via sections), in playlists, liked songs, and history.
  *
  * Field categories:

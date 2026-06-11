@@ -70,7 +70,7 @@ interface HeroInfoPanelProps {
  * Fixed cover image height (matches external cover image dimensions).
  *
  * Used to align info panel with cover art horizontally on desktop.
- * Value: 220px (standard for album/playlist cover art in BeatStream).
+ * Value: 220px (standard for album/playlist cover art in Premix).
  */
 const COVER_H = 220;
 

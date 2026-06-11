@@ -136,7 +136,7 @@ const REQUEST_TIMEOUT_MS = 30000;
  *
  * Environment variables required:
  * - VITE_CLOUDINARY_CLOUD_NAME: Cloudinary cloud name (e.g., "my-cloud-name")
- * - VITE_CLOUDINARY_UPLOAD_PRESET: Unsigned upload preset (e.g., "beatstream_preset")
+ * - VITE_CLOUDINARY_UPLOAD_PRESET: Unsigned upload preset (e.g., "Premix_preset")
  *
  * Why throw errors?
  * - Fail fast if configuration is missing (prevents silent upload failures)
@@ -228,7 +228,7 @@ const validateResponse = async (response: Response): Promise<void> => {
 /**
  * Uploads a file to Cloudinary and returns the secure URL.
  *
- * This is the main public API for file uploads in BeatStream.
+ * This is the main public API for file uploads in Premix.
  *
  * Supported file types:
  * - Images: PNG, JPG, GIF, WebP, etc.

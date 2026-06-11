@@ -388,7 +388,7 @@ const HomePage = () => {
                 />
               </div>
               <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-2">
-                Welcome to BeatStream
+                Welcome to Premix
               </h3>
               <p className="text-sm text-gray-500 max-w-sm mx-auto leading-relaxed">
                 Start adding your favourite tracks to get personalised

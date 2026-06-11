@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * BEATSTREAM - Player Type Definitions
+ * Premix - Player Type Definitions
  * ============================================================================
  * File: features/player/types.ts
  *

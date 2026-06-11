@@ -390,7 +390,7 @@ const Sidebar = ({
    * Shared sidebar content used by both desktop and mobile variants.
    *
    * Contains:
-   * - Header with BeatStream logo and Beta badge (close button on mobile)
+   * - Header with Premix logo and Beta badge (close button on mobile)
    * - Navigation items (Home, Your Library)
    * - Playlists section header with expand/collapse and create button
    * - PlaylistList component (conditionally rendered based on isPlaylistExpanded)
@@ -407,12 +407,21 @@ const Sidebar = ({
       {/* Header section */}
       <div className="flex items-center justify-between mb-6 px-1">
         <div className="flex items-center gap-1.5">
-          <span className="text-lg font-bold text-gray-900 tracking-tight">
-            BeatStream
-          </span>
+          {/* <span className="text-lg font-bold text-gray-900 tracking-tight">
+            Premix
+          </span> */}
+          <img
+            src="/logos/premix_red_logo.png"
+            alt="Premix"
+            className="
+    h-6
+    w-auto
+    object-contain
+  "
+          />
           <span
-            className="text-[10px] font-semibold px-2 py-0 rounded-full text-white"
-            style={{ background: PRIMARY }}
+            className="text-[12px] text-neutral-900 font-extrabold px-0 py-0"
+            // style={{ background: PRIMARY }}
           >
             Beta
           </span>

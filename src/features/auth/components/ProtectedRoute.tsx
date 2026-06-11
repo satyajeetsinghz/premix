@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * BEATSTREAM - Protected Route Component
+ * Premix - Protected Route Component
  * ============================================================================
  * File: features/auth/components/ProtectedRoute.tsx
  *

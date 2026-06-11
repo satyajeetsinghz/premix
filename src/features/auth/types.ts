@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * BEATSTREAM - Authentication Type Definitions
+ * Premix - Authentication Type Definitions
  * ============================================================================
  * File: features/auth/types.ts
  *
@@ -42,7 +42,7 @@ export type UserRole = "user" | "admin";
 /**
  * IUser - Application user model
  *
- * Represents a user in the BeatStream application
+ * Represents a user in the Premix application
  * Persisted in Firestore at /users/{uid}
  * Returned by AuthContext and consumed throughout app
  *

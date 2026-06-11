@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * BEATSTREAM - Music Player Context
+ * Premix - Music Player Context
  * ============================================================================
  * File: features/player/context/PlayerContext.tsx
  *
@@ -79,7 +79,7 @@ import { useAuth } from "@/features/auth/hooks/useAuth";
 import { addToHistory } from "@/features/history/services/historyService";
 
 // Application branding
-const APP_NAME = "BeatStream";
+const APP_NAME = "Premix";
 
 // Fallback icon for track artwork if none provided
 const APP_ICON = `${window.location.origin}/icons/icon-192x192.png`;

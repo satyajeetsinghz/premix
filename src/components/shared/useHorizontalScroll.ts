@@ -28,7 +28,7 @@
  * - Smoother UX when user overscrolls slightly
  *
  * Scroll amount:
- * - Default 320px (matches typical card width + gap in BeatStream)
+ * - Default 320px (matches typical card width + gap in Premix)
  * - Overridable via parameter for different card sizes
  *
  * Performance:
@@ -129,7 +129,7 @@ const calculateShowState = (el: HTMLDivElement) => {
  * Scroll amount (scrollAmount):
  * - Should match approximate card width + gap for optimal UX
  * - Example: Card width 280px + gap 16px = 296px, use 300px
- * - Default 320px works for standard BeatStream cards
+ * - Default 320px works for standard Premix cards
  *
  * @param scrollAmount - Number of pixels to scroll on each button click (default: 320)
  * @returns Object containing ref, visibility flags, scroll handlers, and onScroll callback

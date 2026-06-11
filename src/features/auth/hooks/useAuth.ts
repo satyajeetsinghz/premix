@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * BEATSTREAM - Authentication Hooks
+ * Premix - Authentication Hooks
  * ============================================================================
  * File: features/auth/hooks/useAuth.ts
  *

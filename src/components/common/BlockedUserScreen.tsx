@@ -159,7 +159,7 @@ const BlockedUserScreen = ({ reason }: Props) => {
    * to pre-populate critical context for support team.
    */
   const handleSupport = () => {
-    window.location.href = "mailto:support@beatstream.com";
+    window.location.href = "mailto:support@Premix.com";
   };
 
   return (
@@ -181,7 +181,7 @@ const BlockedUserScreen = ({ reason }: Props) => {
         </div>
 
         <a
-          href="mailto:support@beatstream.com"
+          href="mailto:support@Premix.com"
           className="text-[17px] font-medium text-[#fa243c] whitespace-nowrap shrink-0 pb-3 hover:opacity-65 transition-opacity"
         >
           Appeal decision ›
@@ -195,7 +195,7 @@ const BlockedUserScreen = ({ reason }: Props) => {
           tag="Locked"
           icon={<LockOutlineRounded sx={{ fontSize: 18 }} />}
           title="Access permanently restricted"
-          description="This account has been locked and no longer has access to BeatStream. All features and data have been locked."
+          description="This account has been locked and no longer has access to Premix. All features and data have been locked."
           buttonLabel="Learn more"
           onClick={handleSupport}
           delay="0ms"
@@ -227,7 +227,7 @@ const BlockedUserScreen = ({ reason }: Props) => {
 
       {/* Subtle footer with product attribution */}
       <p className="mt-7 text-xs text-[#aeaeb2] tracking-[0.2px] animate-[fadeUp_0.4s_0.2s_cubic-bezier(0.22,1,0.36,1)_both]">
-        BeatStream · Account Access Restricted
+        Premix · Account Access Restricted
       </p>
 
       <style>{`

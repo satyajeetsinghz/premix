@@ -24,7 +24,7 @@
  * 1. Hero header: Blurred background avatar, centered avatar, name/username, Edit button + More menu
  * 2. Playlists section: Horizontal scrollable carousel of user's playlists (if any)
  * 3. Listening To section: Horizontal scrollable carousel of recently played tracks
- * 4. Footer: BeatStream branding
+ * 4. Footer: Premix branding
  *
  * Visual variants:
  *
@@ -605,9 +605,21 @@ const ProfilePage = () => {
         ) : null}
 
         {/* Footer */}
-        <p className="text-center text-[11px] text-[#aeaeb2] font-semibold tracking-widest uppercase">
-          BeatStream · Beta · 2026
-        </p>
+        <div className="flex justify-center items-center mt-4">
+          <img
+            src="/logos/premix_red_logo.png"
+            alt="Premix"
+            className="
+    h-3
+    w-auto
+    object-contain
+  "
+          />
+          <span
+            className="text-[8px] text-neutral-900 font-extrabold px-0.5 py-0">
+            Beta
+          </span>
+        </div>
       </div>
 
       {/* Edit profile modal */}

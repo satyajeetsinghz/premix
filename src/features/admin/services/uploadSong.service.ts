@@ -333,7 +333,7 @@ const uploadMediaFiles = async (
 };
 
 /**
- * Uploads a new song to BeatStream.
+ * Uploads a new song to Premix.
  *
  * This is the main entry point for song creation in the admin panel.
  *

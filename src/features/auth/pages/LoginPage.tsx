@@ -69,10 +69,10 @@ const BRAND_COLOR = "#fa243c";
 const BRAND_COLOR_DARK = "#E01E5A";
 
 /** Application name displayed in header and legal text */
-const BRAND_NAME = "BeatStream";
+const BRAND_NAME = "Premix";
 
 /** Current application version (displayed in footer) */
-const APP_VERSION = "0.1.0";
+const APP_VERSION = "1.0.0";
 
 /**
  * Featured benefits displayed as badges below welcome text.
@@ -140,11 +140,11 @@ const formatErrorMessage = (error: unknown): string => {
  * - Redirects to "/" if user already authenticated (via ProtectedRoute wrapper)
  *
  * Component structure:
- * - Brand header (BeatStream)
+ * - Brand header (Premix)
  * - Welcome message
  * - Feature badges row
  * - Google Sign-In button (primary)
- * - Divider with "New to BeatStream?" text
+ * - Divider with "New to Premix?" text
  * - "Create an account" button (secondary)
  * - Legal links (Terms, Privacy)
  * - Version footer
@@ -316,7 +316,7 @@ const LoginPage = (): React.ReactElement => {
         {/* Main login card */}
         <div className="bg-white/80 backdrop-blur-xl rounded-2xl sm:rounded-3xl shadow-2xl border border-gray-200/50 p-6 sm:p-8 md:p-10">
           {/* Brand header */}
-          <div className="text-center mb-6 sm:mb-8">
+          <div className="flex justify-center items-center mb-2 sm:mb-2">
             <div className="relative inline-block">
               <div
                 className="absolute inset-0 rounded-2xl animate-ping -z-10"
@@ -324,15 +324,23 @@ const LoginPage = (): React.ReactElement => {
               />
             </div>
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
-              {BRAND_NAME}
+              {/* {BRAND_NAME} */}
+              <img
+                src="/logos/premix_red_logo.png"
+                alt="Premix"
+                className="
+    h-6
+    sm:h-8
+    w-auto
+    object-contain
+  "
+              />
             </h1>
-            <p className="text-xs sm:text-sm text-gray-500 mt-1 sm:mt-2">
-              Music without limits
-            </p>
           </div>
+          <p className="text-[12px] text-neutral-800 font-bold pt-2 text-center tracking-wide">Listen Your Way</p>
 
           {/* Welcome message */}
-          <div className="text-center mb-6 sm:mb-8">
+          <div className="text-center mt-6 mb-6 sm:mb-8">
             <h2 className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-900 mb-1 sm:mb-2">
               Welcome Back
             </h2>
@@ -352,7 +360,7 @@ const LoginPage = (): React.ReactElement => {
           {/* Primary sign-in button */}
           {renderSignInButton()}
 
-          {/* Divider with "New to BeatStream?" text */}
+          {/* Divider with "New to Premix?" text */}
           <div className="relative my-6 sm:my-8">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-gray-200" />

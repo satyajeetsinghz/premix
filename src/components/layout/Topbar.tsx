@@ -198,7 +198,7 @@ const Topbar = () => {
               className="text-base sm:text-lg md:text-xl font-semibold text-gray-900 hover:text-gray-700 transition-colors"
             >
               <span className="block md:hidden">BS</span>
-              {/* Full "BeatStream" text could be shown on larger tablets if needed */}
+              {/* Full "Premix" text could be shown on larger tablets if needed */}
             </button>
           </div>
 

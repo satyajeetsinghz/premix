@@ -1,5 +1,5 @@
 /**
- * @fileoverview Centralized responsive breakpoint detection hook for BeatStream layout system.
+ * @fileoverview Centralized responsive breakpoint detection hook for Premix layout system.
  *
  * Responsibilities:
  * - Provide comprehensive device/viewport detection flags from a single hook
@@ -13,7 +13,7 @@
  * - PlayerBar (src/features/player/components/PlayerBar.tsx) - Uses device for responsive sizing
  *
  * Architectural role:
- * - **CANONICAL SOURCE OF TRUTH** for all responsive behavior in BeatStream
+ * - **CANONICAL SOURCE OF TRUTH** for all responsive behavior in Premix
  * - Per HANDOFF_CORE.md: "Never re-derive these from isMobile/isTablet booleans inline — always use these canonical flags"
  * - Single point of modification if breakpoint values change
  * - Prevents fragmentation where different components use different breakpoint logic
@@ -109,7 +109,7 @@ interface ResponsiveState {
 }
 
 /**
- * useResponsive - Primary responsive hook for BeatStream layout system.
+ * useResponsive - Primary responsive hook for Premix layout system.
  *
  * **IMPORTANT: Canonical source of truth for breakpoint detection.**
  * All components MUST use this hook's showMobileNav and showDesktopSidebar flags

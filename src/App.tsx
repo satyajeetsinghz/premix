@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * BEATSTREAM - Root Application Component
+ * Premix - Root Application Component
  * ============================================================================
  * File: App.tsx
  *
@@ -21,7 +21,7 @@
  * 2. AppContent component waits for auth.loading to be false
  * 3. User status is checked: banned → BlockedUserScreen
  * 4. Suspension status is checked: suspended/not-acknowledged → SuspendedScreen
- * 5. If loading: show AnimatedSpinner (BeatStream branding)
+ * 5. If loading: show AnimatedSpinner (Premix branding)
  * 6. If all checks pass: render RouterProvider with app routes
  *
  * COMPONENT RESPONSIBILITIES:
@@ -134,9 +134,21 @@ const AppContent = () => {
     return (
       <div className="h-screen bg-white flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
-          {/* Animated spinner with BeatStream brand color (red #fa243c) */}
+          {/* Animated spinner with Premix brand color (red #fa243c) */}
           <AnimatedSpinner size={28} color="#fa243c" />
-          <p className="text-sm text-gray-400 font-medium">BeatStream Beta</p>
+          {/* <p className="text-sm text-gray-400 font-medium">Premix Beta</p> */}
+          <img
+            src="/logos/premix_red_logo.png"
+            alt="Premix"
+            className="
+    h-8
+    sm:h-9
+    md:h-10
+    lg:h-11
+    w-auto
+    object-contain
+  "
+          />
         </div>
       </div>
     );
