@@ -71,7 +71,7 @@ import { AuthProvider } from "@/features/auth/context/AuthContext";
 import { PlayerProvider } from "./features/player/context/PlayerContext";
 import { SuspensionProvider } from "@/context/SuspensionContext";
 import { useSuspension } from "@/context/useSuspension";
-import AnimatedSpinner from "./components/ui/LoadingSpinner/AnimatedSpinner";
+// import AnimatedSpinner from "./components/ui/LoadingSpinner/AnimatedSpinner";
 import BlockedUserScreen from "./components/common/BlockedUserScreen";
 import SuspendedScreen from "./components/common/SuspendedScreen";
 import SuspensionBanner from "./components/common/SuspensionBanner";
@@ -132,19 +132,17 @@ const AppContent = () => {
   // Priority 3: Show loading state while authentication is in progress
   if (loading) {
     return (
-      <div className="h-screen bg-white flex items-center justify-center">
+      <div className="h-screen bg-[linear-gradient(135deg,#FF6B7A_0%,#FA586A_20%,#F02A42_55%,#D60017_100%)] flex items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           {/* Animated spinner with Premix brand color (red #fa243c) */}
-          <AnimatedSpinner size={28} color="#fa243c" />
+          {/* <AnimatedSpinner size={28} color="#fa243c" /> */}
           {/* <p className="text-sm text-gray-400 font-medium">Premix Beta</p> */}
           <img
-            src="/logos/premix_red_logo.png"
+            src="/logos/premix_music_white_logo.png"
             alt="Premix"
             className="
-    h-8
-    sm:h-9
-    md:h-10
-    lg:h-11
+    h-16
+    sm:h-20
     w-auto
     object-contain
   "

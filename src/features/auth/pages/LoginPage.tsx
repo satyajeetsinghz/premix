@@ -326,11 +326,11 @@ const LoginPage = (): React.ReactElement => {
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
               {/* {BRAND_NAME} */}
               <img
-                src="/logos/premix_red_logo.png"
+                src="/logos/premix_music_black_logo.png"
                 alt="Premix"
                 className="
-    h-6
-    sm:h-8
+    h-10
+    sm:h-12
     w-auto
     object-contain
   "

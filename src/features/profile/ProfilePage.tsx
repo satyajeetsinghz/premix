@@ -607,18 +607,14 @@ const ProfilePage = () => {
         {/* Footer */}
         <div className="flex justify-center items-center mt-4">
           <img
-            src="/logos/premix_red_logo.png"
+            src="/logos/premix_music_black_logo.png"
             alt="Premix"
             className="
-    h-3
+    h-6
     w-auto
     object-contain
   "
           />
-          <span
-            className="text-[8px] text-neutral-900 font-extrabold px-0.5 py-0">
-            Beta
-          </span>
         </div>
       </div>
 

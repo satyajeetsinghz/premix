@@ -411,20 +411,14 @@ const Sidebar = ({
             Premix
           </span> */}
           <img
-            src="/logos/premix_red_logo.png"
+            src="/logos/premix_music_black_logo.png"
             alt="Premix"
             className="
-    h-6
+    h-10
     w-auto
     object-contain
   "
           />
-          <span
-            className="text-[12px] text-neutral-900 font-extrabold px-0 py-0"
-            // style={{ background: PRIMARY }}
-          >
-            Beta
-          </span>
         </div>
         {/* Close button for mobile drawer */}
         {isMobile && onMobileMenuClose && (
