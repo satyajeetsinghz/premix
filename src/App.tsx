@@ -141,8 +141,8 @@ const AppContent = () => {
             src="/logos/premix_music_white_logo.png"
             alt="Premix"
             className="
-    h-16
-    sm:h-20
+    h-10
+    sm:h-12
     w-auto
     object-contain
   "

@@ -414,7 +414,7 @@ const Sidebar = ({
             src="/logos/premix_music_black_logo.png"
             alt="Premix"
             className="
-    h-10
+    h-6
     w-auto
     object-contain
   "

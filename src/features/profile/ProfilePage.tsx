@@ -610,7 +610,7 @@ const ProfilePage = () => {
             src="/logos/premix_music_black_logo.png"
             alt="Premix"
             className="
-    h-6
+    h-4
     w-auto
     object-contain
   "
