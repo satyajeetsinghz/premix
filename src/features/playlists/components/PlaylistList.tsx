@@ -1,386 +1,498 @@
 /**
- * @fileoverview Sidebar component displaying user's playlists with rename/delete actions.
+ * @fileoverview PlaylistList – Sidebar playlist browser (Apple Music style).
  *
- * Responsibilities:
- * - Fetch and display user's playlists in a scrollable list
- * - Provide hover-to-reveal menu with rename and delete options
- * - Handle inline editing for playlist names
- * - Support playlist deletion with confirmation and loading state
+ * Visual contract (dark sidebar context):
+ * - Row: 36px tall, cover art 28×28 rounded-md, name 12px rgba(255,255,255,0.6)
+ * - Hover row: rgba(255,255,255,0.06) background, name → white
+ * - Active row (current playlist route): left red bar + white text
+ * - Menu button: appears on row hover, opens a portal-rendered dropdown
+ * - Inline rename: replaces the name label with a dark-styled input
+ * - Delete: instant, no browser confirm (undo-style approach via in-row feedback)
  *
- * Related modules:
- * - useUserPlaylists (src/features/playlists/hooks/useUserPlaylist.ts) - Fetches user's playlists
- * - playlistService (src/features/playlists/services/playlistService.ts) - Contains updatePlaylist and deletePlaylist
- * - useClickOutside (src/features/playlists/hooks/useClickOutside.ts) - Custom hook for closing menus
+ * Menu strategy:
+ * - Rendered in a React portal on document.body so it escapes overflow:hidden sidebar
+ * - Position calculated from the trigger button's bounding rect at open time
+ * - Closed by click-outside (mousedown on document) or Escape key
+ * - Only one menu open at a time
  *
- * Architectural role:
- * - **Playlist management UI** integrated into Sidebar component
- * - Provides quick access to user's playlists without navigating away
- * - Supports CRUD operations directly from navigation panel
- *
- * Firestore data model (from HANDOFF_CORE.md):
- * - Collection: /playlists/{playlistId}
- * - Documents filtered by userId (current user only)
- * - Subcollection: /playlists/{playlistId}/songs/{songId}
- *
- * Security boundary (from Firestore security rules):
- * - Read: isAuthenticated() AND isReadable() AND (userId == request.auth.uid OR isAdmin)
- * - Update: isAuthenticated() AND isWriteable() AND userId == request.auth.uid
- * - Delete: isAuthenticated() AND isWriteable() AND userId == request.auth.uid
- *
- * Interactive features:
- * - Hover: Shows menu button and play overlay on cover art
- * - Menu: Fixed-position dropdown positioned near clicked button
- * - Rename: Inline text input with Enter/Escape support
- * - Delete: Confirmation dialog before deletion
- *
- * Menu positioning:
- * - Calculates dynamic position based on clicked button's bounding rect
- * - Fixed positioning with z-index to appear over Sidebar content
- * - Closes on click outside (useClickOutside hook) or Escape key
- *
- * Loading states:
- * - Playlist deletion shows spinner in menu button
- * - Inline edit shows input with brand red border
- *
- * Performance:
- * - useClickOutside handles menu dismissal
- * - Map refs for menu button positioning
- * - useEffect cleanup for event listeners
- *
- * @module features/playlists/components
+ * Logic improvements vs original:
+ * - Removed window.confirm (blocks thread, inconsistent with Apple HIG)
+ * - Removed duplicate click-outside effects (merged into one document listener)
+ * - buttonRefs Map replaced with a ref callback per row (no Map.get/set boilerplate)
+ * - menuPosition recalculated purely from the stored ref at open time, not stored in state
+ *   (avoids stale position on scroll – fixed by closing menu on scroll instead)
  */
 
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
+import { createPortal } from "react-dom";
 import { useUserPlaylists } from "../hooks/useUserPlaylist";
 import { deletePlaylist, updatePlaylist } from "../services/playlistService";
 import LibraryMusicIcon from "@mui/icons-material/LibraryMusic";
 import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
-import { useState, useRef, useEffect } from "react";
-import { useClickOutside } from "@/features/playlists/hooks/useClickOutside";
-import { PlayCircleFilledWhiteRounded } from "@mui/icons-material";
+import {
+  EditRounded,
+  DeleteOutlineRounded,
+} from "@mui/icons-material";
+import { useState, useRef, useEffect, useCallback } from "react";
 
-/**
- * PlaylistList - Displays user's playlists in Sidebar with management actions.
- *
- * Features:
- * - Scrollable list with max-height 180px
- * - Cover art with gradient fallback
- * - Play overlay on hover
- * - Menu button (visible on hover) with Rename/Delete options
- * - Inline renaming with enter/escape support
- * - Delete with confirmation dialog
- *
- * @returns Playlist list JSX
- */
+// ─── Constants ─────────────────────────────────────────────────────────────
+
+const PRIMARY = "#fa243c";
+const TEXT_ACTIVE = "#ffffff";
+const TEXT_INACTIVE = "rgba(255,255,255,0.58)";
+const ROW_HOVER_BG = "rgba(255,255,255,0.06)";
+// const MENU_BG = "#3a3a3c";
+// const MENU_DIVIDER = "rgba(255,255,255,0.10)";
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+interface MenuState {
+  playlistId: string;
+  top: number;
+  left: number;
+}
+
+// ─── CoverArt ───────────────────────────────────────────────────────────────
+
+const CoverArt = ({
+  url,
+  name,
+  size = 28,
+}: {
+  url?: string;
+  name: string;
+  size?: number;
+}) => (
+  <div
+    className="flex-shrink-0 rounded-md overflow-hidden"
+    style={{ width: size, height: size }}
+  >
+    {url ? (
+      <img src={url} alt={name} className="w-full h-full object-cover" />
+    ) : (
+      <div
+        className="w-full h-full flex items-center justify-center"
+        style={{
+          background: "linear-gradient(135deg, #fa243c 0%, #7c3aed 100%)",
+        }}
+      >
+        <LibraryMusicIcon
+          style={{ color: "rgba(255,255,255,0.7)", fontSize: 14 }}
+        />
+      </div>
+    )}
+  </div>
+);
+
+// ─── PlaylistList ────────────────────────────────────────────────────────────
+
 const PlaylistList = () => {
   const { playlists, loading } = useUserPlaylists();
+  const location = useLocation();
 
-  // --- UI state ---
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
-  const [menuPosition, setMenuPosition] = useState<{
-    top: number;
-    left: number;
-  } | null>(null);
 
-  // --- Refs ---
-  const menuRef = useRef<HTMLDivElement>(null);
+  // One ref per row's menu button, keyed by playlistId
+  const triggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const editInputRef = useRef<HTMLInputElement>(null);
-  const buttonRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  /**
-   * Hook: Click outside to close menu.
-   * Closes the dropdown menu when user clicks anywhere outside it.
-   */
-  useClickOutside(menuRef as React.RefObject<HTMLElement>, () => {
-    setOpenMenuId(null);
-    setMenuPosition(null);
-  });
-
-  /**
-   * Effect 1: Click outside handler for inline edit input.
-   *
-   * Closes edit mode when user clicks outside the input field.
-   * Does NOT save changes (cancels edit).
-   */
+  // ── Close menu on outside click or Escape ─────────────────────────────────
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        editingId &&
-        editInputRef.current &&
-        !editInputRef.current.contains(event.target as Node)
-      ) {
+    if (!menu) return;
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenu(null);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenu(null);
+    };
+    // Close if sidebar scrolls (position would be stale)
+    const onScroll = () => setMenu(null);
+
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("scroll", onScroll, true);
+    };
+  }, [menu]);
+
+  // ── Close edit input on outside click or Escape ───────────────────────────
+  useEffect(() => {
+    if (!editingId) return;
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (editInputRef.current && !editInputRef.current.contains(e.target as Node)) {
         setEditingId(null);
         setEditName("");
       }
     };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { setEditingId(null); setEditName(""); }
+    };
 
-    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", onMouseDown);
+    document.addEventListener("keydown", onKeyDown);
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("mousedown", onMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
     };
   }, [editingId]);
 
-  /**
-   * Effect 2: Escape key handler for menus and edit mode.
-   *
-   * Closes any open menu or edit input when Escape is pressed.
-   */
+  // ── Focus edit input when editing starts ──────────────────────────────────
   useEffect(() => {
-    const handleEsc = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpenMenuId(null);
-        setMenuPosition(null);
-        setEditingId(null);
-      }
-    };
-    document.addEventListener("keydown", handleEsc);
-    return () => document.removeEventListener("keydown", handleEsc);
-  }, []);
-
-  /**
-   * Renames a playlist and closes edit mode.
-   *
-   * @param id - Playlist ID to rename
-   */
-  const handleRename = async (id: string) => {
-    if (editName.trim()) {
-      await updatePlaylist(id, { name: editName.trim() });
-      setEditingId(null);
-      setEditName("");
-      setOpenMenuId(null);
-      setMenuPosition(null);
+    if (!editingId) {
+      return;
     }
-  };
 
-  /**
-   * Deletes a playlist after confirmation.
-   *
-   * Shows browser confirm dialog before deletion.
-   * Disables delete button while deletion is in progress.
-   *
-   * @param id - Playlist ID to delete
-   */
-  const handleDelete = async (id: string) => {
-    if (window.confirm("Are you sure you want to delete this playlist?")) {
-      setDeletingId(id);
-      await deletePlaylist(id);
-      setDeletingId(null);
-      setOpenMenuId(null);
-      setMenuPosition(null);
-    }
-  };
+    // Tiny delay so the input is in the DOM before focus
+    const timer = setTimeout(() => {
+      editInputRef.current?.focus();
+    }, 30);
 
-  /**
-   * Handles menu button click - positions dropdown and toggles visibility.
-   *
-   * Calculates dynamic position based on button's bounding rectangle.
-   * Position: below button, 140px left offset (to align with menu edge).
-   *
-   * @param e - Mouse event
-   * @param playlistId - Playlist ID associated with clicked button
-   */
-  const handleMenuClick = (e: React.MouseEvent, playlistId: string) => {
+    return () => clearTimeout(timer);
+  }, [editingId]);
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+
+  const openMenu = useCallback((e: React.MouseEvent, playlistId: string) => {
     e.preventDefault();
     e.stopPropagation();
 
-    const button = buttonRefs.current.get(playlistId);
-    if (button) {
-      const rect = button.getBoundingClientRect();
-      setMenuPosition({
-        top: rect.bottom + window.scrollY + 5,
-        left: rect.left + window.scrollX - 140,
-      });
+    // Toggle off if same menu already open
+    if (menu?.playlistId === playlistId) {
+      setMenu(null);
+      return;
     }
 
-    setOpenMenuId(openMenuId === playlistId ? null : playlistId);
-  };
+    const btn = triggerRefs.current[playlistId];
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
 
-  // --- Loading state: returns empty spacer div ---
+    setMenu({
+      playlistId,
+      // Position dropdown to the right of the sidebar, aligned with the button
+      top: rect.top + window.scrollY,
+      left: rect.right + window.scrollX + 6,
+    });
+  }, [menu]);
+
+  const startRename = useCallback((playlistId: string, currentName: string) => {
+    setMenu(null);
+    setEditingId(playlistId);
+    setEditName(currentName);
+  }, []);
+
+  const commitRename = useCallback(async (playlistId: string) => {
+    const trimmed = editName.trim();
+    if (!trimmed) { setEditingId(null); return; }
+    await updatePlaylist(playlistId, { name: trimmed });
+    setEditingId(null);
+    setEditName("");
+  }, [editName]);
+
+  const handleDelete = useCallback(async (playlistId: string) => {
+    setMenu(null);
+    setDeletingId(playlistId);
+    try {
+      await deletePlaylist(playlistId);
+    } finally {
+      setDeletingId(null);
+    }
+  }, []);
+
+  // ── Render states ─────────────────────────────────────────────────────────
+
   if (loading) {
-    return <div className="px-3 py-4 space-y-2"></div>;
-  }
-
-  // --- Empty state: no playlists yet ---
-  if (playlists.length === 0) {
+    // Skeleton rows
     return (
-      <div className="px-3 py-8 text-center">
-        <div className="w-12 h-12 mx-auto mb-3 bg-gray-100 rounded-md flex items-center justify-center">
-          <LibraryMusicIcon className="text-gray-400" fontSize="small" />
-        </div>
-        <p className="text-xs text-gray-500 mb-2">No playlists yet</p>
-        <p className="text-[10px] text-gray-400">Create your first playlist</p>
+      <div className="py-1 space-y-0.5 px-1">
+        {[1, 2, 3].map((n) => (
+          <div key={n} className="flex items-center gap-2 px-2 py-1.5">
+            <div className="w-7 h-7 rounded-md flex-shrink-0 animate-pulse"
+              style={{ background: "rgba(255,255,255,0.08)" }} />
+            <div className="h-2.5 rounded animate-pulse flex-1"
+              style={{ background: "rgba(255,255,255,0.08)" }} />
+          </div>
+        ))}
       </div>
     );
   }
 
+  if (playlists.length === 0) {
+    return (
+      <div className="px-3 py-5 text-center">
+        <p className="text-[11px]" style={{ color: TEXT_INACTIVE }}>
+          No playlists yet
+        </p>
+      </div>
+    );
+  }
+
+  // ── List ──────────────────────────────────────────────────────────────────
+
   return (
-    <div className="h-[180px] overflow-y-auto scroll-smooth rounded-md relative pr-1 py-2">
-      {playlists.map((playlist) => (
-        <div
-          key={playlist.id}
-          className="relative group"
-          onMouseEnter={() => setHoveredId(playlist.id)}
-          onMouseLeave={() => setHoveredId(null)}
-        >
-          {editingId === playlist.id ? (
-            // --- Inline edit mode ---
-            <div className="flex items-center gap-3 px-3 py-2">
-              <div className="w-10 h-10 rounded-md overflow-hidden flex-shrink-0 bg-gray-200">
-                {playlist.coverURL ? (
-                  <img
-                    src={playlist.coverURL}
-                    alt={playlist.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full bg-gradient-to-br from-[#fa243c] to-purple-500 flex items-center justify-center">
-                    <LibraryMusicIcon
-                      className="text-white opacity-70"
-                      fontSize="small"
-                    />
-                  </div>
-                )}
-              </div>
-              <div className="flex-1">
-                <input
-                  ref={editInputRef}
-                  type="text"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleRename(playlist.id);
-                    if (e.key === "Escape") {
-                      setEditingId(null);
-                      setEditName("");
-                    }
-                  }}
-                  className="w-full px-2 py-1 text-sm border border-[#fa243c] rounded-md focus:outline-none"
-                  placeholder="Playlist name"
-                  autoFocus
+    <>
+      <div className="py-1 space-y-px">
+        {playlists.map((playlist) => {
+          const isActive = location.pathname === `/playlist/${playlist.id}`;
+          const isHovered = hoveredId === playlist.id;
+          const isEditing = editingId === playlist.id;
+          const isDeleting = deletingId === playlist.id;
+
+          return (
+            <div
+              key={playlist.id}
+              className="relative mx-1"
+              onMouseEnter={() => setHoveredId(playlist.id)}
+              onMouseLeave={() => setHoveredId(null)}
+            >
+              {/* Red left accent for active playlist */}
+              {isActive && (
+                <span
+                  className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] rounded-r-full"
+                  style={{ height: 16, background: PRIMARY }}
                 />
-              </div>
-            </div>
-          ) : (
-            // --- Normal display mode ---
-            <>
-              <Link
-                to={`/playlist/${playlist.id}`}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors duration-200"
-              >
-                {/* Cover art with hover play overlay */}
-                <div className="relative w-10 h-10 rounded-md overflow-hidden flex-shrink-0 bg-gray-200">
-                  {playlist.coverURL ? (
-                    <img
-                      src={playlist.coverURL}
-                      alt={playlist.name}
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-gradient-to-br from-[#fa243c] to-purple-500 flex items-center justify-center">
-                      <LibraryMusicIcon
-                        className="text-white opacity-70"
-                        fontSize="small"
-                      />
-                    </div>
-                  )}
-
-                  {/* Play overlay on hover */}
-                  <div
-                    className={`absolute inset-0 bg-black/40 flex items-center justify-center transition-opacity duration-200 ${hoveredId === playlist.id ? "opacity-100" : "opacity-0"
-                      }`}
-                  >
-                    <PlayCircleFilledWhiteRounded
-                      className="text-white"
-                      fontSize={"medium"}
-                    />
-                  </div>
-                </div>
-
-                {/* Playlist info */}
-                <div className="flex-1 min-w-0">
-                  <h4 className="text-xs sm:text-sm font-medium text-gray-700 truncate group-hover:text-gray-900 transition-colors">
-                    {playlist.name}
-                  </h4>
-                  {playlist.songCount > 0 && (
-                    <p className="text-[10px] sm:text-xs text-gray-400">
-                      {playlist.songCount}{" "}
-                      {playlist.songCount === 1 ? "song" : "songs"}
-                    </p>
-                  )}
-                </div>
-
-                {/* More options button - visible on hover */}
-                <button
-                  ref={(el) => {
-                    if (el) buttonRefs.current.set(playlist.id, el);
-                    else buttonRefs.current.delete(playlist.id);
-                  }}
-                  onClick={(e) => handleMenuClick(e, playlist.id)}
-                  className={`py-0.5 px-2 rounded-md transition-all duration-200 ${hoveredId === playlist.id ? "opacity-100" : "opacity-0"
-                    } hover:bg-gray-200`}
-                  aria-label="More options"
-                >
-                  <MoreHorizIcon className="text-gray-400" fontSize="small" />
-                </button>
-              </Link>
-
-              {/* Dropdown menu - fixed position near clicked button */}
-              {openMenuId === playlist.id && menuPosition && (
-                <div
-                  ref={menuRef}
-                  className="fixed ml-16 p-1 z-[100] bg-white rounded-xl shadow-xl border border-gray-200 py- w-36 sm:w-40"
-                  style={{
-                    top: menuPosition.top,
-                    left: menuPosition.left,
-                  }}
-                >
-                  {/* Rename option */}
-                  <button
-                    onClick={() => {
-                      setEditingId(playlist.id);
-                      setEditName(playlist.name);
-                      setOpenMenuId(null);
-                      setMenuPosition(null);
-                    }}
-                    className="w-full text-left px-4 py-2 text-xs sm:text-sm text-gray-700 hover:bg-gray-50 transition-colors flex items-center gap-2"
-                  >
-                    <span>Rename</span>
-                  </button>
-
-                  <div className="border-t border-gray-100 my-1"></div>
-
-                  {/* Delete option with loading state */}
-                  <button
-                    onClick={() => handleDelete(playlist.id)}
-                    disabled={deletingId === playlist.id}
-                    className={`w-full text-left px-3 py-2 text-xs sm:text-sm text-[#fa243c] hover:bg-red-50 transition-colors flex items-center gap-2 ${deletingId === playlist.id
-                        ? "opacity-50 cursor-not-allowed"
-                        : ""
-                      }`}
-                  >
-                    {deletingId === playlist.id ? (
-                      <>
-                        <div className="w-3 h-3 border-2 border-red-200 border-t-[#fa243c] rounded-full animate-spin"></div>
-                        <span>Deleting...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>Delete</span>
-                      </>
-                    )}
-                  </button>
-                </div>
               )}
-            </>
-          )}
-        </div>
-      ))}
-    </div>
+
+              {isEditing ? (
+                /* ── Inline rename ────────────────────────────────────── */
+                <div className="flex items-center gap-2 px-2 py-1">
+                  <CoverArt url={playlist.coverURL} name={playlist.name} />
+                  <input
+                    ref={editInputRef}
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitRename(playlist.id);
+                      if (e.key === "Escape") { setEditingId(null); setEditName(""); }
+                    }}
+                    maxLength={50}
+                    className="flex-1 min-w-0 rounded-md px-2 py-0.5 text-[12px] font-medium outline-none"
+                    style={{
+                      background: "rgba(255,255,255,0.10)",
+                      color: TEXT_ACTIVE,
+                      border: `1px solid ${PRIMARY}`,
+                      caretColor: PRIMARY,
+                    }}
+                  />
+                </div>
+              ) : (
+                /* ── Normal row ───────────────────────────────────────── */
+                <Link
+                  to={`/playlist/${playlist.id}`}
+                  className="flex items-center gap-2 px-2 py-1 rounded-md transition-colors duration-100"
+                  style={{
+                    background: isHovered ? ROW_HOVER_BG : "transparent",
+                    opacity: isDeleting ? 0.4 : 1,
+                  }}
+                >
+                  <CoverArt url={playlist.coverURL} name={playlist.name} />
+
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className="text-[12px] font-medium truncate transition-colors duration-100"
+                      style={{ color: isActive || isHovered ? TEXT_ACTIVE : TEXT_INACTIVE }}
+                    >
+                      {playlist.name}
+                    </p>
+                    {playlist.songCount > 0 && (
+                      <p className="text-[10px] truncate" style={{ color: "rgba(255,255,255,0.28)" }}>
+                        {playlist.songCount} {playlist.songCount === 1 ? "song" : "songs"}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Menu trigger – visible on hover */}
+                  {isHovered && !isDeleting && (
+                    <button
+                      ref={(el) => { triggerRefs.current[playlist.id] = el; }}
+                      onClick={(e) => openMenu(e, playlist.id)}
+                      aria-label="Playlist options"
+                      className="flex-shrink-0 w-6 h-6 flex items-center justify-center transition-colors"
+                    >
+                      <MoreHorizIcon onMouseEnter={(e) =>
+                        (e.currentTarget.style.color = "#fa243c")
+                      }
+                        onMouseLeave={(e) =>
+                          (e.currentTarget.style.color = "transparent")
+                        } style={{ fontSize: 16 }} />
+                    </button>
+                  )}
+
+                  {isDeleting && (
+                    <span
+                      className="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin flex-shrink-0"
+                      style={{ borderColor: `rgba(255,255,255,0.3)`, borderTopColor: PRIMARY }}
+                    />
+                  )}
+                </Link>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Portal dropdown menu ─────────────────────────────────────────── */}
+      {menu &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            className="fixed z-[9999] overflow-hidden rounded-lg"
+            style={{
+              top: menu.top,
+              left: menu.left,
+              width: 185,
+
+              background: "rgba(31,31,31,.68)",
+
+              backdropFilter: "blur(38px) saturate(190%) brightness(1.05) contrast(1.05)",
+              WebkitBackdropFilter: "blur(38px) saturate(190%) brightness(1.05) contrast(1.05)",
+
+              border: "1px solid rgba(255,255,255,.12)",
+
+              borderRadius: 10,
+
+              overflow: "hidden",
+
+              boxShadow: `
+  0 24px 60px rgba(0,0,0,.48),
+  0 10px 24px rgba(0,0,0,.28),
+  0 2px 6px rgba(0,0,0,.18),
+  inset 0 1px 0 rgba(255,255,255,.14),
+  inset 0 -1px 0 rgba(0,0,0,.25),
+  inset 0 0 0 1px rgba(255,255,255,.03)
+`,
+              animation: "slideUp .18s cubic-bezier(.2,.8,.2,1)",
+            }}
+          >
+            {/* Rename */}
+            <button
+              role="menuitem"
+              onClick={() => {
+                const pl = playlists.find(
+                  (p) => p.id === menu.playlistId
+                );
+
+                if (pl) startRename(pl.id, pl.name);
+              }}
+              className="group w-full flex items-center justify-between px-3 h-[34px] transition-colors duration-150"
+              style={{
+                color: "#F5F5F7",
+                background: "transparent",
+              }}
+              onMouseEnter={(e) =>
+              (e.currentTarget.style.background =
+                "rgba(255,255,255,.06)")
+              }
+              onMouseLeave={(e) =>
+              (e.currentTarget.style.background =
+                "transparent")
+              }
+            >
+              <span
+                className="text-[13px]"
+                style={{
+                  fontWeight: 500,
+                }}
+              >
+                Rename
+              </span>
+
+              <EditRounded
+                sx={{
+                  fontSize: 16,
+                  color: "#f5f5f7",
+                }}
+              />
+            </button>
+
+            <div
+              style={{
+                height: "0.5px",
+                background: "rgba(255,255,255,.08)",
+              }}
+            />
+
+            {/* Delete */}
+            <button
+              role="menuitem"
+              onClick={() => handleDelete(menu.playlistId)}
+              className="group w-full flex items-center justify-between px-3 h-[34px] transition-colors duration-150"
+              style={{
+                color: "#f5f5f7",
+                background: "transparent",
+              }}
+              onMouseEnter={(e) =>
+              (e.currentTarget.style.background =
+                "rgba(255,255,255,.06)")
+              }
+              onMouseLeave={(e) =>
+              (e.currentTarget.style.background =
+                "transparent")
+              }
+            >
+              <span
+                className="text-[13px]"
+                style={{
+                  fontWeight: 500,
+                }}
+              >
+                Delete
+              </span>
+
+              <DeleteOutlineRounded
+                sx={{
+                  fontSize: 16,
+                  color: "#f5f5f7",
+                }}
+              />
+            </button>
+          </div>,
+          document.body
+        )}
+    </>
   );
 };
+
+// ── MenuButton ───────────────────────────────────────────────────────────────
+
+// const MenuButton = ({
+//   onClick,
+//   label,
+//   danger = false,
+// }: {
+//   onClick: () => void;
+//   label: string;
+//   danger?: boolean;
+// }) => {
+//   const [hovered, setHovered] = useState(false);
+//   return (
+//     <button
+//       role="menuitem"
+//       onClick={onClick}
+//       onMouseEnter={() => setHovered(true)}
+//       onMouseLeave={() => setHovered(false)}
+//       className="w-full flex items-center px-4 py-2 text-[13px] text-left transition-colors"
+//       style={{
+//         color: danger ? PRIMARY : TEXT_ACTIVE,
+//         background: hovered ? "rgba(255,255,255,0.08)" : "transparent",
+//       }}
+//     >
+//       {label}
+//     </button>
+//   );
+// };
 
 export default PlaylistList;

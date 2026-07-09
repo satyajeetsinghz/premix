@@ -117,6 +117,9 @@ export interface IBanner {
   title: string;
   subtitle?: string;
 
+  eyebrow?: string;
+  caption?: string;
+
   mediaType: "image" | "video";
   imageUrl: string;
   mediaUrl?: string;

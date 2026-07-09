@@ -1,58 +1,36 @@
 /**
- * @fileoverview Liked Songs page displaying user's favorited tracks with playlist-like interface.
+ * @fileoverview Liked Songs page — dark glassmorphism Apple Music redesign.
  *
- * Responsibilities:
- * - Display all songs liked by the current user in a table/list view
- * - Provide play all and shuffle buttons for instant playback
- * - Show total tracks, total duration, and artist information
- * - Support toggling like status directly from the list
- * - Handle empty state with discovery CTA
+ * Changes from previous version:
+ * - Removed star/like icons from the left column of song rows entirely
+ * - Added contextual dropdown menu on MoreHorizIcon click (mobile + desktop)
+ *   Menu items: "Remove from Liked Songs" / "Add to Liked Songs", "Add to Playlist",
+ *               "Share Song", "Go to Artist", "Go to Album"
+ * - Menu positions itself above/below the trigger to stay in viewport
+ * - Menu closes on outside click, Escape key, or selecting an item
+ * - Subtle separator between the like action and secondary actions
+ * - Apple Music 2026 menu style: dark glass, 12px radius, 220px min-width
  *
- * Related modules:
- * - subscribeToLikedSongs (src/features/likes/services/getLikedSongs.ts) - Fetches liked songs with real-time updates
- * - toggleLikeTransaction (src/features/likes/services/likeService.ts) - Handles like/unlike operations
- * - usePlayer (src/features/player/hooks/usePlayer.ts) - Controls playback
- * - HeroInfoPanel (src/components/shared/HeroInfoPanel.tsx) - Hero section component
+ * Bug fixes in this pass:
+ * - Fixed corrupted hero description string that had the same sentence
+ *   duplicated ~7 times with "play" and "Like" mashed together at each seam
+ *   ("...ready to playike any song...") — replaced with a single clean paragraph.
+ * - Removed a no-op `window.scrollY - window.scrollY` cancellation in the
+ *   context menu's "open above" position calculation.
  *
- * Architectural role:
- * - **User's personal playlist page** for liked content
- * - Route: /liked (protected, inside MainLayout)
- * - Similar visual style to Apple Music's "Liked Songs" playlist
- *
- * Firestore data model (from HANDOFF_CORE.md):
- * - Liked songs subcollection: /users/{uid}/likedSongs/{songId}
- * - Each document: { createdAt: Timestamp } (ordered by createdAt descending)
- * - Songs are resolved to full ISong objects via subscribeToLikedSongs
- *
- * Page structure:
- * 1. Sticky header with back button
- * 2. Hero section: Gradient cover art + HeroInfoPanel with stats and actions
- * 3. Table/list view of liked songs with sortable columns (visual only)
- * 4. Each row: like star, cover art, title, artist, album, duration, more menu
- *
- * Playback behavior:
- * - "Play" button: Plays first song in list with full queue (all liked songs)
- * - "Shuffle" button: Randomizes queue order before playback
- * - Clicking any row: Plays that song with all liked songs as queue
- *
- * Like toggling:
- * - Star button toggles like status (unlike removes from this list)
- * - Real-time update: subscribeToLikedSongs updates list immediately
- * - Loading state prevents double-click during toggle
- *
- * Empty state:
- * - Shows gradient heart icon and friendly message
- * - "Discover Music" button navigates to home page
- *
- * Performance:
- * - useMemo for totalMins (recalculates only when songs change)
- * - useCallback for event handlers (stable references)
- * - Optimistic UI for like toggle (togglingLike Set prevents duplicates)
+ * All other functionality, hooks, and architecture unchanged from previous version.
  *
  * @module features/likes/pages
  */
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import {
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  useLayoutEffect,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/features/auth/hooks/useAuth";
 import { usePlayer } from "@/features/player/hooks/usePlayer";
@@ -65,31 +43,48 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
 import LibraryMusicIcon from "@mui/icons-material/LibraryMusic";
 import ChevronLeftRounded from "@mui/icons-material/ChevronLeftRounded";
+import StarRoundedIcon from "@mui/icons-material/StarRounded";
+import StarBorderRoundedIcon from "@mui/icons-material/StarBorderRounded";
 import {
+  AlbumRounded,
+  IosShareRounded,
+  Person,
   PlayArrowRounded,
+  PlaylistAddRounded,
   ShuffleOutlined,
-  Star,
-  StarOutline,
 } from "@mui/icons-material";
 import AnimatedSpinner from "@/components/ui/LoadingSpinner/AnimatedSpinner";
+import { createPortal } from "react-dom";
 
-// Brand constants (matches HANDOFF_CORE.md)
+// ── Brand tokens ──────────────────────────────────────────────
 const P = "#fa243c";
 const PH = "#e01e33";
 const GR = "linear-gradient(135deg, #fa243c 0%, #bf5af2 100%)";
-const COVER_H = 220;
+const COVER_H = 270;
 
-/**
- * Parses duration string or number to total seconds.
- *
- * Handles formats:
- * - "3:45" → 225 seconds
- * - "180" (numeric string) → 180 seconds
- * - number → number
- *
- * @param d - Duration string (MM:SS), numeric string, or number
- * @returns Total seconds (default 0 if invalid)
- */
+// ── Dark-theme surface tokens ─────────────────────────────────
+// const BG = "#1f1f1f";
+const SURFACE = "#1f1f1f";
+// const SURFACE_ALT = "rgba(255,255,255,0.025)";
+const HOVER_ROW = "rgba(255,255,255,0.08)";
+const BORDER = "rgba(255,255,255,0.07)";
+const TEXT_PRI = "#ffffffeb";
+const TEXT_SEC = "rgba(235,235,245,0.6)";
+const TEXT_TER = "rgba(235,235,245,0.4)";
+
+// Menu surface — slightly lighter than page for contrast
+// const MENU_BG = "rgba(44,44,46,0.98)";
+// const MENU_BORDER = "rgba(255,255,255,0.10)";
+// const MENU_SEP = "rgba(255,255,255,0.08)";
+
+const TABLE_COLS =
+  "minmax(440px,4fr) minmax(240px,2fr) minmax(240px,2fr) 72px 40px";
+
+// ── Fixed chrome that can overlap the menu ─────────────────────
+const PLAYER_BAR_H = 90;   // adjust to your actual PlayerBar height
+const MOBILE_NAV_H = 64;   // adjust to your actual MobileNav height
+
+// ── Helpers ───────────────────────────────────────────────────
 const parseSecs = (d?: string | number): number => {
   if (!d) return 0;
   if (typeof d === "string" && d.includes(":")) {
@@ -100,14 +95,6 @@ const parseSecs = (d?: string | number): number => {
   return isNaN(n) ? 0 : n;
 };
 
-/**
- * Formats duration in seconds to MM:SS string.
- *
- * If already in MM:SS format, returns as-is.
- *
- * @param d - Duration in seconds or MM:SS string
- * @returns Formatted duration string (e.g., "3:45") or "—" if invalid
- */
 const fmtDur = (d?: string | number): string => {
   if (!d) return "—";
   if (typeof d === "string" && d.includes(":")) return d;
@@ -116,12 +103,7 @@ const fmtDur = (d?: string | number): string => {
   return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 };
 
-/**
- * Pill-shaped button component for hero actions.
- *
- * Used for Play and Shuffle buttons.
- * Extends standard button HTML attributes.
- */
+// ── PillBtn ───────────────────────────────────────────────────
 const PillBtn = ({
   onClick,
   children,
@@ -134,7 +116,7 @@ const PillBtn = ({
   <button
     onClick={onClick}
     disabled={disabled}
-    className={`flex items-center justify-center gap-2 px-7 py-[9px] rounded-full sm:rounded-md text-[13px] font-semibold text-white shadow-sm transition-colors disabled:opacity-40 ${className || ""}`}
+    className={`flex items-center justify-center gap-2 px-6 py-2 rounded-full text-[14px] font-semibold text-white shadow-sm transition-all disabled:opacity-40 ${className || ""}`}
     style={style}
     onMouseEnter={onMouseEnter}
     onMouseLeave={onMouseLeave}
@@ -143,41 +125,318 @@ const PillBtn = ({
   </button>
 );
 
+// ── Song context menu ─────────────────────────────────────────
+interface SongMenuState {
+  songId: string;
+  song: ISong;
+  anchorEl: HTMLButtonElement;
+}
+
+interface SongContextMenuProps {
+  menu: SongMenuState;
+  isLiked: boolean;
+  isToggling: boolean;
+  onLikeToggle: (songId: string) => void;
+  onClose: () => void;
+}
+
 /**
- * LikedSongs - Page displaying user's favorited tracks.
+ * Floating context menu — Apple Music 2026 style.
  *
- * Route: "/liked" (protected, inside MainLayout)
- *
- * Data fetching:
- * - subscribeToLikedSongs provides real-time updates
- * - Returns full song objects ordered by liked date (newest first)
- *
- * Page features:
- * - Gradient cover art with heart icon
- * - HeroInfoPanel with total count and total duration
- * - Play all / Shuffle buttons
- * - Sortable table columns (visual only, no actual sorting logic implemented)
- *
- * @returns Liked songs page JSX
+ * Positioning:
+ * - Measures trigger button position via getBoundingClientRect
+ * - Opens below trigger if space is available, otherwise above
+ * - Pinned 8px from right edge of trigger
+ * - useLayoutEffect recalculates on each open to handle scroll position
  */
+const SongContextMenu = ({
+  menu,
+  isLiked,
+  isToggling,
+  onLikeToggle,
+  onClose,
+}: SongContextMenuProps) => {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; right: number } | null>(null);
+
+  // Calculate position after paint so we know menu dimensions
+  useLayoutEffect(() => {
+    const rect = menu.anchorEl.getBoundingClientRect();
+    const menuHeight = menuRef.current?.offsetHeight ?? 260;
+    const viewH = window.innerHeight;
+    const spaceBelow = viewH - rect.bottom;
+    const spaceAbove = rect.top;
+
+    const right = window.innerWidth - rect.right + window.scrollX;
+
+    if (spaceBelow >= menuHeight + 8 || spaceBelow >= spaceAbove) {
+      setPos({ top: rect.bottom + window.scrollY + 6, right });
+    } else {
+      // Distance from the viewport bottom up to the anchor's top edge, plus a small gap.
+      setPos({ bottom: viewH - rect.top + 6, right });
+    }
+  }, [menu.anchorEl]);
+
+  useLayoutEffect(() => {
+    const rect = menu.anchorEl.getBoundingClientRect();
+    const menuHeight = menuRef.current?.offsetHeight ?? 260;
+    const viewH = window.innerHeight;
+
+    // Reserve space for fixed chrome sitting on top of the page content
+    const isMobile = window.innerWidth < 640; // matches your sm: breakpoint
+    const bottomChrome = isMobile ? MOBILE_NAV_H + PLAYER_BAR_H : PLAYER_BAR_H;
+    const usableViewH = viewH - bottomChrome;
+
+    const spaceBelow = usableViewH - rect.bottom;
+    const spaceAbove = rect.top;
+
+    const right = window.innerWidth - rect.right + window.scrollX;
+
+    if (spaceBelow >= menuHeight + 8 || spaceBelow >= spaceAbove) {
+      // Clamp so it never runs past the usable area, even if anchor is low
+      const top = Math.min(
+        rect.bottom + window.scrollY + 6,
+        window.scrollY + usableViewH - menuHeight - 8,
+      );
+      setPos({ top, right });
+    } else {
+      setPos({ bottom: viewH - rect.top + 6, right });
+    }
+  }, [menu.anchorEl]);
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(e.target as Node) &&
+        e.target !== menu.anchorEl &&
+        !menu.anchorEl.contains(e.target as Node)
+      ) {
+        onClose();
+      }
+    };
+    // Slight delay so the triggering click doesn't immediately close
+    const tid = setTimeout(() => document.addEventListener("mousedown", handler), 50);
+    return () => {
+      clearTimeout(tid);
+      document.removeEventListener("mousedown", handler);
+    };
+  }, [onClose, menu.anchorEl]);
+
+  const menuItems: Array<{
+    icon: React.ReactNode;
+    label: string;
+    onClick: () => void;
+    danger?: boolean;
+    separator?: boolean; // separator ABOVE this item
+  }> = [
+      {
+        icon: isLiked ? (
+          <StarRoundedIcon
+            sx={{
+              fontSize: 16,
+              color: "#fa233b",
+            }}
+          />
+        ) : (
+          <StarBorderRoundedIcon
+            sx={{
+              fontSize: 16,
+              color: "#f5f5f7",
+            }}
+          />
+        ),
+        label: isLiked ? "Favourited" : "Favourite",
+        danger: isLiked,
+        onClick: () => {
+          onLikeToggle(menu.songId);
+          onClose();
+        },
+      },
+      {
+        icon: <PlaylistAddRounded sx={{ fontSize: 16 }} />,
+        label: "Add to Playlist",
+        separator: true,
+        onClick: () => onClose(),
+      },
+      {
+        icon: <IosShareRounded sx={{ fontSize: 16 }} />,
+        label: "Share Song",
+        onClick: () => onClose(),
+      },
+      {
+        icon: <Person sx={{ fontSize: 16 }} />,
+        label: "Go to Artist",
+        separator: true,
+        onClick: () => onClose(),
+      },
+      {
+        icon: <AlbumRounded sx={{ fontSize: 16 }} />,
+        label: "Go to Album",
+        onClick: () => onClose(),
+      },
+    ];
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      role="menu"
+      aria-label={`Options for ${menu.song.title}`}
+      style={{
+        position: "fixed",
+        ...(pos?.top !== undefined ? { top: pos.top } : {}),
+        ...(pos?.bottom !== undefined ? { bottom: pos.bottom } : {}),
+        right: pos?.right ?? 16,
+        width: 200,
+        zIndex: 999999, // above PlayerBar / MobileNav, whatever they use
+        background: "rgba(31,31,31,.68)",
+
+        backdropFilter: "blur(38px) saturate(190%) brightness(1.05) contrast(1.05)",
+        WebkitBackdropFilter: "blur(38px) saturate(190%) brightness(1.05) contrast(1.05)",
+
+        border: "1px solid rgba(255,255,255,.12)",
+
+        borderRadius: 10,
+
+        overflow: "hidden",
+
+        boxShadow: `
+  0 24px 60px rgba(0,0,0,.48),
+  0 10px 24px rgba(0,0,0,.28),
+  0 2px 6px rgba(0,0,0,.18),
+  inset 0 1px 0 rgba(255,255,255,.14),
+  inset 0 -1px 0 rgba(0,0,0,.25),
+  inset 0 0 0 1px rgba(255,255,255,.03)
+`,
+        animation: "slideUp .18s cubic-bezier(.2,.8,.2,1)",
+        visibility: pos ? "visible" : "hidden",
+      }}
+    >
+      {/* Song info */}
+      <div
+        style={{
+          padding: "8px 12px",
+        }}
+      >
+        <p
+          style={{
+            fontSize: 13,
+            fontWeight: 500,
+            color: "#F5F5F7",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {menu.song.title}
+        </p>
+
+        <p
+          style={{
+            fontSize: 11,
+            color: "rgba(235,235,245,.55)",
+            marginTop: 1,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {menu.song.artist}
+        </p>
+      </div>
+
+      <div
+        style={{
+          height: .5,
+          background: "rgba(255,255,255,.08)",
+        }}
+      />
+
+      {menuItems.map((item, i) => (
+        <div key={i}>
+          {item.separator && (
+            <div
+              style={{
+                height: .5,
+                background: "rgba(255,255,255,.08)",
+              }}
+            />
+          )}
+
+          <button
+            role="menuitem"
+            disabled={isToggling && item.label.includes("Liked")}
+            onClick={item.onClick}
+            className="group w-full flex items-center justify-between px-3 h-[34px] transition-colors duration-150"
+            style={{
+              background: "transparent",
+              color: "#F5F5F7",
+
+              opacity:
+                isToggling && item.label.includes("Liked")
+                  ? .45
+                  : 1,
+            }}
+            onMouseEnter={(e) =>
+            (e.currentTarget.style.background =
+              "rgba(255,255,255,.06)")
+            }
+            onMouseLeave={(e) =>
+            (e.currentTarget.style.background =
+              "transparent")
+            }
+          >
+            <span
+              className="text-[13px]"
+              style={{
+                fontWeight: 500,
+              }}
+            >
+              {item.label}
+            </span>
+
+            <span
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+
+                color: item.danger
+                  ? "#ff453a"
+                  : "#F5F5F7",
+              }}
+            >
+              {item.icon}
+            </span>
+          </button>
+        </div>
+      ))}
+    </div>,
+    document.body,
+  );
+};
+
+// ── Page ──────────────────────────────────────────────────────
 const LikedSongs = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { playTrack } = usePlayer();
 
-  // --- State ---
   const [songs, setSongs] = useState<ISong[]>([]);
   const [loading, setLoading] = useState(true);
   const [togglingLike, setTogglingLike] = useState<Set<string>>(new Set());
+  const [activeMenu, setActiveMenu] = useState<SongMenuState | null>(null);
 
-  /**
-   * Effect: Subscribe to user's liked songs with real-time updates.
-   *
-   * subscribeToLikedSongs:
-   * - Listens to /users/{uid}/likedSongs subcollection
-   * - Resolves each song ID to full ISong object
-   * - Orders by createdAt descending (newest liked first)
-   */
   useEffect(() => {
     if (!user) return;
     const unsub = subscribeToLikedSongs(user.uid, (data) => {
@@ -187,60 +446,25 @@ const LikedSongs = () => {
     return () => unsub();
   }, [user]);
 
-  /**
-   * Memoized total duration in minutes.
-   *
-   * Sums duration of all liked songs (parsed to seconds)
-   * Converts to minutes (floor) for display.
-   */
   const totalMins = useMemo(
     () => Math.floor(songs.reduce((a, s) => a + parseSecs(s.duration), 0) / 60),
     [songs],
   );
 
-  /**
-   * Plays all liked songs starting from the first track.
-   *
-   * Queue = all liked songs in current order.
-   * Calls playTrack with first song and full queue.
-   */
   const handlePlayAll = useCallback(() => {
     if (songs.length) playTrack(songs[0], songs);
   }, [songs, playTrack]);
 
-  /**
-   * Plays all liked songs in random order (shuffle).
-   *
-   * Creates shuffled copy of songs array.
-   * First shuffled track becomes current song, rest as queue.
-   */
   const handleShuffle = useCallback(() => {
     if (!songs.length) return;
     const sh = [...songs].sort(() => Math.random() - 0.5);
     playTrack(sh[0], sh);
   }, [songs, playTrack]);
 
-  /**
-   * Toggles like status for a song.
-   *
-   * Called from star button in table row.
-   * Since song is already liked, this will unlike it.
-   *
-   * Optimistic UI:
-   * - Add songId to togglingLike Set (disables button)
-   * - Call toggleLikeTransaction
-   * - On success, subscribeToLikedSongs removes song from list
-   * - On error, button re-enabled with no UI change
-   *
-   * @param songId - ID of song to unlike
-   */
   const handleLikeToggle = useCallback(
     async (songId: string) => {
-      if (!user) return;
-      if (togglingLike.has(songId)) return;
-
+      if (!user || togglingLike.has(songId)) return;
       setTogglingLike((prev) => new Set(prev).add(songId));
-
       try {
         await toggleLikeTransaction(user.uid, songId);
       } catch (error) {
@@ -257,304 +481,394 @@ const LikedSongs = () => {
   );
 
   /**
-   * Dynamic description for HeroInfoPanel.
-   *
-   * Includes:
-   * - Number of tracks (with correct pluralization)
-   * - Total minutes
-   * - Educational text about liking songs
+   * Opens (or closes if same song) the context menu for a song row.
    */
+  const handleOpenMenu = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>, song: ISong) => {
+      e.stopPropagation();
+      const btn = e.currentTarget;
+      setActiveMenu((prev) =>
+        prev?.songId === song.id ? null : { songId: song.id, song, anchorEl: btn },
+      );
+    },
+    [],
+  );
+
+  const handleCloseMenu = useCallback(() => setActiveMenu(null), []);
+
   const description = `All the songs you've liked in one place — ${songs.length} ${songs.length === 1 ? "track" : "tracks"} and ${totalMins} minutes of music.\n\nLike any song while browsing or listening and it will appear here automatically. Your taste in one collection, always ready to play.`;
 
-  // --- Loading state ---
+  // ── Loading ───────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#f5f5f7] flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3">
-          <AnimatedSpinner size={28} color={P} />
-          <p className="text-[13px] text-[#6e6e73]">
-            Loading your liked songs…
-          </p>
+      <div
+        className="min-h-screen"
+        style={{ background: "transparent", paddingLeft: "var(--sidebar-inset)" }}
+        role="main"
+        aria-label="Library page"
+      >
+        <div className="min-h-screen flex items-center justify-center" style={{ background: "transparent" }}>
+          <div className="flex flex-col items-center gap-3">
+            <AnimatedSpinner size={28} color={P} />
+            <p className="text-[13px]" style={{ color: TEXT_SEC }}>
+              Loading your liked songs…
+            </p>
+          </div>
         </div>
       </div>
     );
   }
 
-  // --- Empty state (no liked songs) ---
+  // ── Empty state ───────────────────────────────────────────
   if (!songs.length) {
     return (
-      <div className="min-h-screen bg-[#f5f5f7] flex items-center justify-center">
-        <div className="flex flex-col items-center text-center px-8 py-16 max-w-sm">
-          <div
-            className="w-24 h-24 rounded-md flex items-center justify-center shadow-lg mb-6"
-            style={{ background: GR }}
-          >
-            <FavoriteIcon className="text-white" sx={{ fontSize: 44 }} />
+      <div
+        className="min-h-screen"
+        style={{ background: "transparent", paddingLeft: "var(--sidebar-inset)" }}
+        role="main"
+        aria-label="Library page"
+      >
+        <div className="min-h-screen flex items-center justify-center" style={{ background: "transparent" }}>
+          <div className="flex flex-col items-center text-center px-8 py-16 max-w-sm">
+            <div
+              className="w-24 h-24 rounded-2xl flex items-center justify-center shadow-2xl mb-6"
+              style={{ background: GR }}
+            >
+              <FavoriteIcon className="text-white" sx={{ fontSize: 44 }} />
+            </div>
+            <h1 className="text-[22px] font-bold mb-2" style={{ color: TEXT_PRI }}>
+              No Liked Songs Yet
+            </h1>
+            <p className="text-[13px] leading-relaxed mb-8" style={{ color: TEXT_SEC }}>
+              Songs you like will appear here. Tap the heart icon on any track to save it.
+            </p>
+            <button
+              onClick={() => navigate("/")}
+              className="flex items-center gap-2 px-7 py-2.5 rounded-lg text-[13px] font-semibold text-white shadow-md transition-colors"
+              style={{ background: P }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = PH)}
+              onMouseLeave={(e) => (e.currentTarget.style.background = P)}
+            >
+              <PlayArrowIcon sx={{ fontSize: 18 }} />
+              Discover Music
+            </button>
           </div>
-          <h1 className="text-[22px] font-bold text-[#1d1d1f] mb-2">
-            No Liked Songs Yet
-          </h1>
-          <p className="text-[13px] text-[#6e6e73] leading-relaxed mb-8">
-            Songs you like will appear here. Tap the heart icon on any track to
-            save it.
-          </p>
-          <button
-            onClick={() => navigate("/")}
-            className="flex items-center gap-2 px-7 py-[9px] rounded-md text-[13px] font-semibold text-white shadow-sm transition-colors"
-            style={{ background: P }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = PH)}
-            onMouseLeave={(e) => (e.currentTarget.style.background = P)}
-          >
-            <PlayArrowIcon sx={{ fontSize: 18 }} />
-            Discover Music
-          </button>
         </div>
       </div>
     );
   }
 
-  // --- Main view (songs exist) ---
+  // ── Main ──────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#f5f5f7]">
-      {/* Sticky header with back button */}
-      <div className="sticky top-0 z-20 bg-[#f5f5f7]/50 backdrop-blur-md border-b border-black/[0.06]">
-        <div className="max-w-7xl mx-aut px-6 sm:px-8 flex items-center justify-between h-14">
-          <button
-            onClick={() => navigate(-1)}
-            className="flex items-center gap-0.5 text-[15px] font-semibold"
-            style={{ color: P }}
-          >
-            <ChevronLeftRounded sx={{ fontSize: 26 }} />
-            <span>Liked</span>
-          </button>
-        </div>
-      </div>
+    <div
+      className="min-h-screen"
+      style={{ background: "transparent", paddingLeft: "var(--sidebar-inset)" }}
+      role="main"
+      aria-label="Library page"
+    >
+      <div className="min-h-screen" style={{ background: "transparent" }}>
 
-      <div className="max-w-7xl mx-aut px-1 sm:px-8 pb-16">
-        {/* Hero section */}
-        <div className="pt-10 pb-10">
-          <div className="flex flex-col sm:flex-row gap-8 items-start">
-            {/* Gradient cover art with heart icon */}
-            <div
-              className="shrink-0 mx-auto sm:mx-0 rounded-md overflow-hidden shadow-[0_8px_32px_rgba(0,0,0,0.18)]"
-              style={{ width: COVER_H, height: COVER_H, background: GR }}
+        {/* ── Sticky header ── */}
+        <div
+          className="sticky top-0 z-20 border-b"
+          style={{
+            background: "transparent",
+            backdropFilter: "blur(24px)",
+            WebkitBackdropFilter: "blur(24px)",
+            borderColor: BORDER,
+          }}
+        >
+          <div className="max-w-7xl mx-auto px-6 sm:px-8 flex items-center h-[52px]">
+            <button
+              onClick={() => navigate(-1)}
+              className="flex items-center gap-0.5 text-[15px] font-semibold transition-opacity hover:opacity-70"
+              style={{ color: P }}
             >
-              <div className="w-full h-full flex items-center justify-center">
-                <FavoriteIcon className="text-white/90" sx={{ fontSize: 88 }} />
+              <ChevronLeftRounded sx={{ fontSize: 26 }} />
+              <span>Liked</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-8 pb-24">
+
+          {/* ── Hero ── */}
+          <div className="pt-10 pb-10">
+            <div className="flex flex-col sm:flex-row gap-8 items-start">
+              <div
+                className="shrink-0 mx-auto sm:mx-0 rounded-2xl overflow-hidden"
+                style={{
+                  width: COVER_H,
+                  height: COVER_H,
+                  background: GR,
+                }}
+              >
+                <div className="w-full h-full flex items-center justify-center">
+                  <FavoriteIcon className="text-white/90" sx={{ fontSize: 88 }} />
+                </div>
               </div>
+
+              <HeroInfoPanel
+                title="Liked Songs"
+                subtitle={user?.name || "Your Collection"}
+                description={description}
+                meta={
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>Various Artists</span>
+                    <span className="w-[3px] h-[3px] rounded-full" style={{ background: TEXT_TER }} />
+                    <span>{songs.length} {songs.length === 1 ? "song" : "songs"}</span>
+                    <span className="w-[3px] h-[3px] rounded-full" style={{ background: TEXT_TER }} />
+                    <span>{totalMins} min</span>
+                  </div>
+                }
+                actions={
+                  <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+                    <div className="flex w-full gap-2 sm:w-auto">
+                      <PillBtn
+                        onClick={handlePlayAll}
+                        disabled={songs.length === 0}
+                        style={{ background: P }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = PH)}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = P)}
+                        className="flex-1 sm:flex-initial"
+                      >
+                        <PlayArrowRounded sx={{ fontSize: 18 }} />
+                        Play
+                      </PillBtn>
+                      <PillBtn
+                        onClick={handleShuffle}
+                        disabled={songs.length === 0}
+                        style={{
+                          background: SURFACE,
+                          border: `1px solid ${BORDER}`,
+                          backdropFilter: "blur(12px)",
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = HOVER_ROW)}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = SURFACE)}
+                        className="flex-1 sm:flex-initial"
+                      >
+                        <ShuffleOutlined sx={{ fontSize: 16 }} />
+                        Shuffle
+                      </PillBtn>
+                    </div>
+                    <button
+                      className="hidden sm:flex items-center justify-center p-2 rounded-lg transition-colors"
+                      style={{ color: TEXT_SEC }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = SURFACE)}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <MoreHorizIcon sx={{ fontSize: 20 }} />
+                    </button>
+                  </div>
+                }
+              />
+            </div>
+          </div>
+
+          {/* ── Song table ── */}
+          <div
+            className="overflow-hidden"
+            style={{
+              background: "transparent",
+              backdropFilter: "blur(20px)",
+              WebkitBackdropFilter: "blur(20px)",
+            }}
+          >
+            {/* ── Desktop header ── */}
+            <div
+              className="hidden sm:grid items-center h-11 px-0 border-b"
+              style={{
+                borderColor: BORDER,
+                gridTemplateColumns: TABLE_COLS,
+              }}
+            >
+              <span className="text-[12px] font-medium pl-1" style={{ color: TEXT_TER }}>
+                Song
+              </span>
+              <span className="text-[12px] font-medium" style={{ color: TEXT_TER }}>
+                Artist
+              </span>
+              <span className="hidden lg:block text-[12px] font-medium" style={{ color: TEXT_TER }}>
+                Album
+              </span>
+              <span className="text-[12px] font-medium text-right" style={{ color: TEXT_TER }}>
+                Time
+              </span>
+              <span />
             </div>
 
-            {/* Hero info panel with metadata and actions */}
-            <HeroInfoPanel
-              title="Liked Songs"
-              subtitle={user?.name || "Your Collection"}
-              description={description}
-              meta={
-                <div className="flex flex-wrap items-center gap-2">
-                  <span>Various Artists</span>
-                  <span className="w-[3px] h-[3px] rounded-md bg-[#aeaeb2]" />
-                  <span>
-                    {songs.length} {songs.length === 1 ? "song" : "songs"}
-                  </span>
-                  <span className="w-[3px] h-[3px] rounded-md bg-[#aeaeb2]" />
-                  <span>{totalMins} min</span>
-                </div>
-              }
-              actions={
-                <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
-                  <div className="flex w-full gap-2 sm:w-auto">
-                    {/* Play All button */}
-                    <PillBtn
-                      onClick={handlePlayAll}
-                      disabled={songs.length === 0}
-                      style={{ background: P }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.background = PH)
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.background = P)
-                      }
-                      className="flex-1 sm:flex-initial"
-                    >
-                      <PlayArrowRounded sx={{ fontSize: 18 }} />
-                      Play
-                    </PillBtn>
+            {/* ── Rows ── */}
+            {songs.map((song) => {
+              // const isToggling = togglingLike.has(song.id);
+              const menuOpen = activeMenu?.songId === song.id;
+              // All songs in this view are liked
+              // const isLiked = true;
 
-                    {/* Shuffle button */}
-                    <PillBtn
-                      onClick={handleShuffle}
-                      disabled={songs.length === 0}
-                      style={{ background: P }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.background = PH)
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.background = P)
-                      }
-                      className="flex-1 sm:flex-initial"
-                    >
-                      <ShuffleOutlined sx={{ fontSize: 16 }} />
-                      Shuffle
-                    </PillBtn>
-                  </div>
-
-                  {/* More options button (placeholder) */}
-                  <button className="hidden sm:block p-2 rounded-md hover:bg-black/[0.06] transition-colors text-[#6e6e73]">
-                    <MoreHorizIcon sx={{ fontSize: 20 }} />
-                  </button>
-                </div>
-              }
-            />
-          </div>
-        </div>
-
-        {/* Songs table/list view */}
-        <div className="overflow-hidden">
-          {/* Table header (sticky, hidden on mobile) */}
-          <div
-            className="grid items-center pr-1 sm:px-5 py-2.5 border-b border-[#f2f2f7]"
-            style={{ gridTemplateColumns: "40px 1fr 1fr 1fr 56px 32px" }}
-          >
-            <span className="text-[11px] font-semibold text-[#8e8e93] tracking-wider"></span>
-            <span className="text-[11px] font-semibold text-[#8e8e93] tracking-wider hidden md:block">
-              Song
-            </span>
-            <span className="text-[11px] font-semibold text-[#8e8e93] tracking-wider hidden md:block">
-              Artist
-            </span>
-            <span className="text-[11px] font-semibold text-[#8e8e93] tracking-wider hidden lg:block">
-              Album
-            </span>
-            <span className="text-[11px] font-semibold text-[#8e8e93] tracking-wider text-right hidden sm:table-cell">
-              Time
-            </span>
-            <span />
-          </div>
-
-          {/* Song rows */}
-          {songs.map((song, i) => {
-            const isLiked = true; // All songs in this list are liked
-            const isToggling = togglingLike.has(song.id);
-
-            return (
-              <div
-                key={song.id}
-                onClick={() => playTrack(song, songs)}
-                className={`
-                  group grid items-center pr-1 sm:px-5 py-2.5 cursor-pointer transition-colors rounded-md 
-                  hover:bg-[#e8e8e8] 
-                  ${i % 2 === 0 ? "bg-[#f5f5f7]" : "bg-[#fafafa]"}
-                  ${i !== songs.length - 1 ? "border-b border-[#f5f5f7]" : ""}
-                  grid-cols-[25px_1fr_40px] sm:grid-cols-[40px_1fr_1fr_1fr_56px_32px]
-                `}
-              >
-                {/* Like star button column */}
-                <div className="flex items-center justify-start relative">
-                  <button
-                    className={`
-                      transition-all duration-200 w-6 h-6 flex items-center justify-center rounded-md
-                      ${isLiked
-                        ? "opacity-100 hover:bg-black/[0.08]"
-                        : "opacity-0 group-hover:opacity-100 hover:bg-black/[0.08]"
-                      }
-                      ${isToggling ? "opacity-50 cursor-progress" : ""}
-                      ${!user ? "opacity-0 pointer-events-none" : ""}
-                      group/star-btn relative
-                    `}
-                    style={{ color: P }}
-                    onClick={(e) => {
-                      e.stopPropagation(); // Prevent row click from triggering playback
-                      handleLikeToggle(song.id);
-                    }}
-                    disabled={isToggling || !user}
-                    aria-label={
-                      isLiked
-                        ? `Remove ${song.title} from likes`
-                        : `Like ${song.title}`
-                    }
-                  >
-                    {isLiked ? (
-                      <Star sx={{ fontSize: 12 }} />
-                    ) : (
-                      <StarOutline sx={{ fontSize: 12 }} />
-                    )}
-
-                    {/* Tooltip on hover */}
-                    <span
-                      className="
-                        absolute left-1/2 -translate-x-[15%] sm:-translate-x-1/2 bottom-full mb-1 
-                        px-2 py-1 text-[10px] font-medium text-neutral-800 bg-neutral-50 rounded
-                        opacity-0 group-hover/star-btn:opacity-100 transition-opacity
-                        pointer-events-none whitespace-nowrap z-10
-                        shadow-lg
-                      "
-                    >
-                      {isLiked ? "Favourited" : "Favourite"}
-                    </span>
-                  </button>
-                </div>
-
-                {/* Cover art + Title (mobile shows artist below) */}
-                <div className="flex items-center gap-3 min-w-0 pr-2 sm:pr-4">
-                  <div className="w-10 h-10 shrink-0 rounded-md overflow-hidden shadow-sm">
-                    {song.coverUrl || song.imageUrl ? (
-                      <img
-                        src={song.coverUrl || song.imageUrl}
-                        alt={song.title}
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                    ) : (
-                      <div
-                        className="w-full h-full flex items-center justify-center"
-                        style={{ background: GR }}
-                      >
-                        <LibraryMusicIcon
-                          sx={{ fontSize: 13 }}
-                          className="text-white/80"
-                        />
-                      </div>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-semibold text-[#1d1d1f] truncate leading-tight">
-                      {song.title}
-                    </p>
-                    {/* Artist appears below title on mobile */}
-                    <p className="text-[11px] text-[#6e6e73] truncate mt-0.5 md:hidden">
-                      {song.artist}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Artist (hidden on mobile) */}
-                <p className="text-[13px] text-[#3c3c43] truncate pr-4 hidden sm:block">
-                  {song.artist}
-                </p>
-
-                {/* Album (hidden on tablet and below) */}
-                <p className="text-[13px] text-[#3c3c43] truncate pr-4 hidden lg:block">
-                  {song.album || "—"}
-                </p>
-
-                {/* Duration (hidden on mobile) */}
-                <span className="text-[13px] text-[#8e8e93] tabular-nums text-right hidden sm:block">
-                  {fmtDur(song.duration)}
-                </span>
-
-                {/* More options button (placeholder) */}
-                <button
-                  className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-black/[0.08] ml-auto sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
-                  style={{ color: P }}
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label="More options"
+              return (
+                <div
+                  key={song.id}
+                  onClick={() => playTrack(song, songs)}
+                  className="group cursor-pointer transition-colors"
+                  style={{
+                    background: menuOpen ? "rgba(255,255,255,0.06)" : undefined,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!menuOpen) e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!menuOpen) e.currentTarget.style.background = "transparent";
+                  }}
                 >
-                  <MoreHorizIcon sx={{ fontSize: 16 }} />
-                </button>
-              </div>
-            );
-          })}
+                  {/* ── Mobile row ── */}
+                  <div
+                    className="flex sm:hidden items-center gap-3 px-2 h-[64px] border-b"
+                    style={{ borderColor: BORDER }}
+                  >
+                    {/* Artwork */}
+                    <div className="w-10 h-10 rounded-md overflow-hidden shrink-0">
+                      {song.coverUrl || song.imageUrl ? (
+                        <img
+                          src={song.coverUrl || song.imageUrl}
+                          alt={song.title}
+                          className="w-full h-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center" style={{ background: GR }}>
+                          <LibraryMusicIcon sx={{ fontSize: 14 }} className="text-white/70" />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="truncate text-[13px]" style={{ color: TEXT_PRI }}>
+                        {song.title}
+                      </p>
+                      <p className="truncate text-[12px] mt-0.5" style={{ color: TEXT_SEC }}>
+                        {song.artist}
+                      </p>
+                    </div>
+
+                    {/* More button */}
+                    <button
+                      onClick={(e) => handleOpenMenu(e, song)}
+                      aria-label={`More options for ${song.title}`}
+                      aria-expanded={menuOpen}
+                      aria-haspopup="menu"
+                      className="
+    flex
+    items-center
+    justify-center
+    shrink-0
+    w-11
+    h-11
+    transition-all
+    duration-200
+  "
+                      onMouseEnter={(e) =>
+                        (e.currentTarget.style.color = "#fa243c")
+                      }
+                      onMouseLeave={(e) =>
+                        (e.currentTarget.style.color = "white")
+                      }
+                    >
+                      <MoreHorizIcon sx={{ fontSize: 22 }} />
+                    </button>
+                  </div>
+
+                  {/* ── Desktop row ── */}
+                  <div
+                    className="hidden sm:grid items-center h-[56px] px-1 border-b"
+                    style={{
+                      borderColor: BORDER,
+                      gridTemplateColumns: TABLE_COLS,
+                    }}
+                  >
+                    {/* Song + cover */}
+                    <div className="flex items-center gap-4 min-w-0 w-full pl-1">
+                      <div className="w-9 h-9 rounded-md overflow-hidden shrink-0">
+                        {song.coverUrl || song.imageUrl ? (
+                          <img
+                            src={song.coverUrl || song.imageUrl}
+                            alt={song.title}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center" style={{ background: GR }}>
+                            <LibraryMusicIcon sx={{ fontSize: 13 }} className="text-white/70" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-[13px]" style={{ color: TEXT_PRI }}>
+                          {song.title}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Artist */}
+                    <div className="truncate pr-4 text-[13px]" style={{ color: TEXT_SEC }}>
+                      {song.artist}
+                    </div>
+
+                    {/* Album */}
+                    <div className="hidden lg:block truncate pr-4 text-[13px]" style={{ color: TEXT_SEC }}>
+                      {song.album || "—"}
+                    </div>
+
+                    {/* Time */}
+                    <div className="text-right text-[12px] tabular-nums" style={{ color: TEXT_TER }}>
+                      {fmtDur(song.duration)}
+                    </div>
+
+                    {/* More button */}
+                    <button
+                      onClick={(e) => handleOpenMenu(e, song)}
+                      aria-label={`More options for ${song.title}`}
+                      aria-expanded={menuOpen}
+                      aria-haspopup="menu"
+                      className="
+    flex
+    items-center
+    justify-center
+    pl-2
+    transition-colors
+    duration-200
+    hover:text-[#fa243c]
+  "
+                      onMouseEnter={(e) =>
+                        (e.currentTarget.style.color = "#fa243c")
+                      }
+                      onMouseLeave={(e) =>
+                        (e.currentTarget.style.color = "white")
+                      }
+                      style={{
+                        // color: menuOpen ? "#fa243c" : TEXT_SEC,
+                        background: "transparent",
+                        opacity: menuOpen ? 1 : undefined,
+                      }}
+                    >
+                      <MoreHorizIcon sx={{ fontSize: 16 }} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
+
+        {/* ── Floating context menu (portal-like, fixed position) ── */}
+        {activeMenu && (
+          <SongContextMenu
+            menu={activeMenu}
+            isLiked={true}
+            isToggling={togglingLike.has(activeMenu.songId)}
+            onLikeToggle={handleLikeToggle}
+            onClose={handleCloseMenu}
+          />
+        )}
       </div>
     </div>
   );

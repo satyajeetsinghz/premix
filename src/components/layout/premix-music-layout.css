@@ -1,0 +1,44 @@
+/*
+ * apple-music-layout.css
+ * Global styles required by the Apple Music layout system.
+ * Import once in your root entry (e.g. main.tsx or App.tsx).
+ */
+
+/* ── Dropdown slide-up animation ─────────────────────────────────────────── */
+@keyframes am-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ── Custom scrollbar (Webkit) — Apple Music thin dark style ─────────────── */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 99px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+}
+
+/* ── Hide scrollbar on nav panels (Firefox) ──────────────────────────────── */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

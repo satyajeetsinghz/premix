@@ -31,6 +31,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import "./components/layout/premix-music-layout.css"
 import "./assets/branding/fonts/fonts.css"
 
 // Initialize React application on the DOM root element

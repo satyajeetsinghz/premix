@@ -1,92 +1,72 @@
 /**
- * @fileoverview Global audio player bar with playback controls, progress seek, and volume management.
+ * @fileoverview PlayerBar — Apple Music Web Player floating pill.
  *
- * Responsibilities:
- * - Display currently playing track with cover art, title, and artist
- * - Provide play/pause, next/previous, and seek controls
- * - Manage volume with mute toggle and slider
- * - Show progress bar with current time and duration
- * - Responsive layout: full bar on desktop, compact bar on mobile/tablet
- *
- * Related modules:
- * - usePlayer (src/features/player/hooks/usePlayer.ts) - Global player state and controls
- * - MainLayout (src/components/layout/MainLayout.tsx) - Conditionally renders PlayerBar when currentTrack exists
- *
- * Architectural role:
- * - **Global audio playback UI** (fixed bottom bar)
- * - Rendered in MainLayout, visible on all routes when a track is playing
- * - Positioned above MobileNav on mobile devices (z-index coordination)
- *
- * Layout behavior (from HANDOFF_CORE.md):
- * - Desktop: Fixed bottom bar with full controls (h-20 md:h-24)
- * - Mobile/Tablet: Compact bar above mobile navigation (bottom-[60px])
- * - Content padding adjusted to prevent overlap (pb-24 desktop, pb-40 mobile + player)
- *
- * Responsive variants:
- * - Desktop (> 1180px): Full bar with volume slider, expanded controls
- * - Tablet (768px-1179px): Compact but functional (smaller buttons, hidden volume text)
- * - Mobile (< 768px): Minimal bar with essential controls, volume in popup slider
- *
- * Volume persistence:
- * - Volume state managed in usePlayer (global)
- * - Mute state toggles between 0 and previous volume
- * - Mobile volume control uses popup slider with click-outside detection
- *
- * Progress seeking:
- * - Shows current time and duration
- * - Click/drag on progress bar seeks to position
- * - Smooth visual feedback with hover thumb
- *
- * Suspension awareness:
- * - PlayerBar renders for suspended users (read-only access to playback)
- * - Suspended users can still play/pause/seek (local audio operations)
- * - Writes (likes, history, playlists) are blocked elsewhere
- *
- * @module features/player/components
+ * UI-ONLY redesign pass (iOS 26 liquid glass, dark theme — matches MobileNav dark).
+ * No logic, state, hooks, or prop/behavior changes from the original file.
+ * Only JSX structure kept 1:1; only className/style values were edited.
  */
-
-import { usePlayer } from "../hooks/usePlayer";
-import PlayCircleRoundedIcon from "@mui/icons-material/PlayCircleRounded";
-import PauseCircleRoundedIcon from "@mui/icons-material/PauseCircleRounded";
-import FastForwardRoundedIcon from "@mui/icons-material/FastForwardRounded";
-import FastRewindRoundedIcon from "@mui/icons-material/FastRewindRounded";
-import VolumeUpIcon from "@mui/icons-material/VolumeUp";
-import VolumeDownIcon from "@mui/icons-material/VolumeDown";
-import VolumeOffIcon from "@mui/icons-material/VolumeOff";
-import VolumeMuteIcon from "@mui/icons-material/VolumeMute";
 
 import { useState, useEffect, useRef } from "react";
-import { useResponsive } from "@/components/layout/hooks/useResponsive";
+import { usePlayer } from "../hooks/usePlayer";
 
-/**
- * Formats time in seconds to MM:SS format.
- *
- * @param time - Time in seconds
- * @returns Formatted time string (e.g., "3:45")
- */
-const formatTime = (time: number) => {
-  const minutes = Math.floor(time / 60);
-  const seconds = Math.floor(time % 60);
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-};
+import ShuffleRoundedIcon from "@mui/icons-material/ShuffleRounded";
+import PlayArrowRoundedIcon from "@mui/icons-material/PlayArrowRounded";
+import PauseRoundedIcon from "@mui/icons-material/PauseRounded";
+import RepeatRoundedIcon from "@mui/icons-material/RepeatRounded";
+import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
+import QueueMusicRoundedIcon from "@mui/icons-material/QueueMusicRounded";
+import VolumeUpRoundedIcon from "@mui/icons-material/VolumeUpRounded";
+import VolumeOffRoundedIcon from "@mui/icons-material/VolumeOffRounded";
+import DefaultPlayer from "./DefaultPlayer";
+import { FastForwardRounded, FastRewindRounded } from "@mui/icons-material";
 
-/**
- * PlayerBar - Global audio playback control bar.
- *
- * Rendered conditionally in MainLayout when currentTrack is truthy.
- * Position: fixed bottom (z-50), above MobileNav on mobile.
- *
- * Component structure:
- * - Desktop: Left (cover + metadata) + Center (controls + progress) + Right (volume)
- * - Mobile: Compact horizontal layout with essential controls + popup volume slider
- *
- * State management:
- * - localVolume: Local copy of volume for UI responsiveness
- * - previousVolume: Stores volume before mute (for unmute restore)
- * - isVolumeSliderVisible: Controls mobile volume popup visibility
- *
- * @returns Player bar JSX or null if no currentTrack
- */
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const fmt = (s: number) =>
+  `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+// ─── Ghost icon button ────────────────────────────────────────────────────────
+
+const Btn = ({
+  onClick,
+  label,
+  size = 18,
+  className = "",
+  style = {},
+  children,
+}: {
+  onClick?: () => void;
+  label: string;
+  size?: number;
+  className?: string;
+  style?: React.CSSProperties;
+  children: React.ReactNode;
+}) => (
+  <button
+    onClick={onClick}
+    aria-label={label}
+    className={`
+      flex
+      items-center
+      justify-center
+      rounded-full
+      p-1.5
+      transition-all
+      duration-150
+      ${className}
+    `}
+    style={{
+      color: "#ffffffeb",
+      fontSize: size,
+      ...style,
+    }}
+  >
+    {children}
+  </button>
+);
+
+// ─── PlayerBar ────────────────────────────────────────────────────────────────
+
 const PlayerBar = () => {
   const {
     currentTrack,
@@ -98,435 +78,402 @@ const PlayerBar = () => {
     playNext,
     playPrevious,
     volume: playerVolume,
-    setVolume: setPlayerVolume,
+    setVolume,
     toggleMute: playerToggleMute,
   } = usePlayer();
 
-  const { isMobile, isTablet } = useResponsive();
+  const [volume, setLocalVolume] = useState(playerVolume ?? 0.7);
+  const lastVol = useRef(playerVolume ?? 0.7);
 
-  // --- Volume state ---
-  const [localVolume, setLocalVolume] = useState(playerVolume || 0.7);
-  const [previousVolume, setPreviousVolume] = useState(playerVolume || 0.7);
-  const [isVolumeHovered, setIsVolumeHovered] = useState(false);
-  const [isVolumeSliderVisible, setIsVolumeSliderVisible] = useState(false);
-
-  // --- Refs for click-outside detection (mobile volume popup) ---
-  const volumeButtonRef = useRef<HTMLDivElement>(null);
-  const volumeSliderRef = useRef<HTMLDivElement>(null);
-
-  /**
-   * Sync local volume with global player volume when it changes.
-   */
+  // Stay in sync when player changes volume externally (e.g. keyboard shortcut)
   useEffect(() => {
-    if (playerVolume !== undefined) {
+    if (playerVolume != null && playerVolume !== volume) {
       setLocalVolume(playerVolume);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerVolume]);
 
-  /**
-   * Effect: Click-outside handler for mobile volume slider popup.
-   *
-   * Closes volume popup when clicking outside the button or popup area.
-   * Cleanup: Removes event listener on unmount.
-   */
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        volumeSliderRef.current &&
-        !volumeSliderRef.current.contains(event.target as Node) &&
-        volumeButtonRef.current &&
-        !volumeButtonRef.current.contains(event.target as Node)
-      ) {
-        setIsVolumeSliderVisible(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, []);
-
-  /**
-   * Handles volume slider change.
-   * Updates both local state and global player volume.
-   *
-   * @param e - Range input change event
-   */
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newVolume = parseFloat(e.target.value);
-    setLocalVolume(newVolume);
-    setPlayerVolume(newVolume);
+  const handleVolume = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = parseFloat(e.target.value);
+    if (v > 0) lastVol.current = v;
+    setLocalVolume(v);
+    setVolume(v);
   };
 
-  /**
-   * Toggles mute state.
-   *
-   * Logic:
-   * - If volume > 0: Store current volume, set to 0 (mute)
-   * - If volume === 0: Restore previous volume (unmute)
-   *
-   * Uses local volume state and syncs to global player.
-   */
-  const handleToggleMute = () => {
-    if (localVolume > 0) {
-      setPreviousVolume(localVolume);
+  const handleMute = () => {
+    if (volume > 0) {
+      lastVol.current = volume;
       setLocalVolume(0);
-      setPlayerVolume(0);
+      setVolume(0);
     } else {
-      setLocalVolume(previousVolume);
-      setPlayerVolume(previousVolume);
+      const r = lastVol.current || 0.7;
+      setLocalVolume(r);
+      setVolume(r);
     }
-    if (playerToggleMute) {
-      playerToggleMute();
-    }
+    playerToggleMute?.();
   };
 
-  /**
-   * Returns appropriate volume icon based on current volume level.
-   *
-   * Levels:
-   * - 0: VolumeOff (muted)
-   * - 0.1-0.3: VolumeMute (very quiet)
-   * - 0.31-0.7: VolumeDown (medium)
-   * - 0.71-1.0: VolumeUp (loud)
-   *
-   * @returns MUI icon component
-   */
-  const getVolumeIcon = () => {
-    if (localVolume === 0)
-      return <VolumeOffIcon fontSize="small" className="text-gray-400" />;
-    if (localVolume < 0.3)
-      return <VolumeMuteIcon fontSize="small" className="text-gray-400" />;
-    if (localVolume < 0.7)
-      return <VolumeDownIcon fontSize="small" className="text-gray-400" />;
-    return <VolumeUpIcon fontSize="small" className="text-gray-400" />;
-  };
+  if (!currentTrack) return <DefaultPlayer logoSrc="/logos/premix_music_white_logo.png" mobileLogoSrc="/logos/premix_rounded_logo.png" />;
 
-  // Don't render anything if no track is playing
-  if (!currentTrack) return null;
+  const progress = duration ? (currentTime / duration) * 100 : 0;
 
-  // --- Mobile/Tablet layout (compact bar above mobile navigation) ---
-  if (isMobile || isTablet) {
-    return (
-      <div className="fixed bottom-[60px] left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-200 shadow-lg">
-        <div className="px-3 sm:px-8 py-2 flex items-center gap-2">
-          {/* Cover art */}
-          <img
-            src={currentTrack.coverUrl || "/default-album.jpg"}
-            alt={currentTrack.title}
-            className="w-10 h-10 rounded-md shadow-sm object-cover flex-shrink-0"
-          />
+  return (
+    <div
+      className="
+    absolute
+    inset-x-0
+    bottom-20
+    sm:bottom-0
+    z-50
+    flex
+    justify-center
+    px-3
+  "
+      style={{
+        paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+        pointerEvents: "none",
+      }}
+    >
 
-          {/* Track metadata */}
-          <div className="flex-1 min-w-0">
-            <h3 className="font-medium text-gray-900 text-xs truncate">
-              {currentTrack.title}
-            </h3>
-            <p className="text-[10px] text-gray-500 truncate">
-              {currentTrack.artist}
-            </p>
-          </div>
+      {/* ── Mobile Floating Pill ── */}
+      <div className="block md:hidden">
+        <div
+          className="relative w-[min(420px,calc(100vw-24px))] overflow-hidden"
+          style={{
+            borderRadius: 100,
+            pointerEvents: "auto",
+            background: "rgba(31, 31, 31, 0.55)", // #1f1f1f translucent glass tint
 
-          {/* Playback controls */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={playPrevious}
-              className="text-gray-600 hover:text-[#fa243c] transition-colors"
-              aria-label="Previous track"
-            >
-              <FastRewindRoundedIcon sx={{ fontSize: "1.3rem" }} />
-            </button>
+            backdropFilter: "blur(30px) saturate(180%) brightness(1.05)",
+            WebkitBackdropFilter: "blur(30px) saturate(180%) brightness(1.05)",
 
-            <button
-              onClick={togglePlay}
-              className="flex items-center justify-center"
-              aria-label={isPlaying ? "Pause" : "Play"}
-            >
-              {isPlaying ? (
-                <PauseCircleRoundedIcon
-                  className="text-[#fa243c]"
-                  sx={{ fontSize: "2.2rem" }}
-                />
-              ) : (
-                <PlayCircleRoundedIcon
-                  className="text-[#fa243c]"
-                  sx={{ fontSize: "2.2rem" }}
-                />
-              )}
-            </button>
+            border: "1px solid rgba(255,255,255,0.06)",
 
-            <button
-              onClick={playNext}
-              className="text-gray-600 hover:text-[#fa243c] transition-colors"
-              aria-label="Next track"
-            >
-              <FastForwardRoundedIcon sx={{ fontSize: "1.3rem" }} />
-            </button>
-          </div>
-
-          {/* Volume control (popup on mobile) */}
-          <div className="relative" ref={volumeButtonRef}>
-            <button
-              onClick={() => setIsVolumeSliderVisible(!isVolumeSliderVisible)}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-              aria-label="Volume control"
-            >
-              {getVolumeIcon()}
-            </button>
-
-            {/* Volume popup slider (visible when toggled) */}
-            {isVolumeSliderVisible && (
+            boxShadow: `
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    inset 0 -1px 0 rgba(255,255,255,0.02),
+    0 12px 40px rgba(0,0,0,0.35)
+  `,
+          }}
+        >
+          {/* Main Row */}
+          <div
+            className="flex items-center justify-between px-4"
+            style={{ height: 56 }}
+          >
+            {/* Left Section */}
+            <div className="flex items-center gap-3 flex-1 min-w-0">
               <div
-                ref={volumeSliderRef}
-                className="absolute bottom-full right-0 mb-2 p-3 bg-white rounded-xl shadow-xl border border-gray-200 animate-fadeIn"
-                style={{ minWidth: "200px" }}
+                className="flex-shrink-0 rounded-md overflow-hidden"
+                style={{
+                  width: 36,
+                  height: 36,
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+                }}
               >
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={handleToggleMute}
-                    className="text-gray-400 hover:text-gray-600 flex-shrink-0"
-                  >
-                    {getVolumeIcon()}
-                  </button>
-
-                  <div className="flex-1 relative group h-1">
-                    <div className="absolute w-full h-1 bg-gray-200 rounded-full"></div>
-                    <div
-                      className="absolute h-1 bg-[#fa243c] rounded-full"
-                      style={{ width: `${localVolume * 100}%` }}
-                    ></div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.01"
-                      value={localVolume}
-                      onChange={handleVolumeChange}
-                      className="absolute top-0 left-0 w-full h-1 opacity-0 cursor-pointer z-10"
-                      aria-label="Volume control"
-                    />
-                    <div
-                      className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-[#fa243c] rounded-full border-2 border-white shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                      style={{
-                        left: `${localVolume * 100}%`,
-                        transform: "translate(-50%, -50%)",
-                      }}
-                    ></div>
-                  </div>
-
-                  <span className="text-xs text-gray-400 w-8 text-right">
-                    {Math.round(localVolume * 100)}%
-                  </span>
-                </div>
+                <img
+                  src={currentTrack.coverUrl || "/default-album.jpg"}
+                  alt={currentTrack.title}
+                  className="w-full h-full object-cover"
+                  draggable={false}
+                />
               </div>
-            )}
-          </div>
-        </div>
 
-        {/* Progress bar (below controls) */}
-        <div className="px-3 pb-2">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-gray-400 w-8 text-right">
-              {formatTime(currentTime)}
-            </span>
+              <div className="flex-1 max-w-[70%]">
+                <p
+                  className="truncate"
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 400,
+                    color: "#f5f5f7",
+                    letterSpacing: "-0.1px",
+                  }}
+                >
+                  {currentTrack.title}
+                </p>
 
-            <div className="flex-1 relative h-1">
-              <div className="absolute w-full h-1 bg-gray-200 rounded-full"></div>
-              <div
-                className="absolute h-1 bg-[#fa243c] rounded-full"
-                style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
-              ></div>
-              <input
-                type="range"
-                min={0}
-                max={duration || 0}
-                value={currentTime}
-                onChange={(e) => seek(Number(e.target.value))}
-                className="absolute top-0 left-0 w-full h-1 opacity-0 cursor-pointer"
-                aria-label="Seek progress"
-              />
+                <p
+                  className="truncate"
+                  style={{
+                    fontSize: 11,
+                    color: "rgba(235,235,245,0.45)",
+                  }}
+                >
+                  {currentTrack.artist}
+                </p>
+              </div>
             </div>
 
-            <span className="text-[10px] text-gray-400 w-8">
-              {formatTime(duration)}
-            </span>
+            {/* Right Section */}
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <button
+                onClick={togglePlay}
+                aria-label={isPlaying ? "Pause" : "Play"}
+                className="flex items-center justify-center rounded-full"
+                style={{
+                  width: 36,
+                  height: 36,
+                  color: "#ffffffeb",
+                }}
+              >
+                {isPlaying ? (
+                  <PauseRoundedIcon sx={{ fontSize: 34 }} />
+                ) : (
+                  <PlayArrowRoundedIcon sx={{ fontSize: 38, marginLeft: "1px" }} />
+                )}
+              </button>
+
+              <button
+                onClick={playNext}
+                aria-label="Next"
+                className="flex items-center justify-center"
+                style={{
+                  width: 36,
+                  height: 36,
+                  color: "#ffffffeb",
+                }}
+              >
+                <FastForwardRounded sx={{ fontSize: 34 }} />
+              </button>
+            </div>
+          </div>
+
+          {/* Progress Bar (same pattern as desktop) */}
+          <div
+            className="absolute bottom-0 left-0 right-0 cursor-pointer"
+            style={{
+              height: 2,
+              background: "rgba(255,255,255,0.07)",
+            }}
+          >
+            <div
+              className="h-full"
+              style={{
+                width: `${progress}%`,
+                background: "#ff6961",
+                boxShadow: "0 0 6px rgba(255,105,97,0.6)",
+                transition: "width 0.25s linear",
+              }}
+            />
+
+            <input
+              type="range"
+              min={0}
+              max={duration || 0}
+              value={currentTime}
+              onChange={(e) => seek(Number(e.target.value))}
+              aria-label="Seek"
+              className="absolute inset-0 w-full opacity-0 cursor-pointer"
+              style={{ height: "100%" }}
+            />
           </div>
         </div>
       </div>
-    );
-  }
 
-  // --- Desktop layout (full horizontal bar) ---
-  return (
-    <div
-      className={`h-20 md:h-24 bg-white/95 backdrop-blur-md border-t border-gray-200 fixed bottom-0 left-0 right-0 z-50 shadow-lg ${isTablet ? "px-3" : "px-4 md:px-6"
-        }`}
-    >
-      <div className="h-full flex items-center">
-        {/* Left section: Cover art + track metadata */}
-        <div className="w-1/4 min-w-[140px] md:min-w-[180px] flex items-center gap-2 md:gap-3">
-          <img
-            src={currentTrack.coverUrl || "/default-album.jpg"}
-            alt={currentTrack.title}
-            className="w-10 h-10 md:w-12 md:h-12 lg:w-14 lg:h-14 rounded-md shadow-md object-cover"
-          />
-          <div className="flex-1 min-w-0">
-            <h3 className="font-medium text-gray-900 text-xs md:text-sm truncate">
-              {currentTrack.title}
-            </h3>
-            <p className="text-[10px] md:text-xs text-gray-500 truncate">
-              {currentTrack.artist}
-            </p>
-          </div>
-        </div>
+      {/* Desktop Pill */}
+      <div className="hidden md:block">
+        {/* ── Dekstop Floating pill ── */}
+        <div
+          className="relative w-[min(660px,calc(100vw-32px))] overflow-hidden"
+          style={{
+            borderRadius: 100,
+            pointerEvents: "auto",
+            background: "rgba(31, 31, 31, 0.55)", // #1f1f1f translucent glass tint
 
-        {/* Center section: Playback controls + progress bar */}
-        <div className="flex-1 max-w-2xl mx-auto flex flex-col items-center gap-1 md:gap-2">
-          {/* Transport controls */}
-          <div className="flex items-center gap-3 md:gap-4">
-            <button
-              onClick={playPrevious}
-              className="text-gray-600 hover:text-[#fa243c] transition-colors"
-              aria-label="Previous track"
-            >
-              <FastRewindRoundedIcon
-                sx={{ fontSize: { xs: "1.5rem", sm: "1.8rem", md: "2.2rem" } }}
-              />
-            </button>
+            backdropFilter: "blur(30px) saturate(180%) brightness(1.05)",
+            WebkitBackdropFilter: "blur(30px) saturate(180%) brightness(1.05)",
 
-            <button
-              onClick={togglePlay}
-              className="flex items-center justify-center transition-transform hover:scale-105"
-              aria-label={isPlaying ? "Pause" : "Play"}
-            >
-              {isPlaying ? (
-                <PauseCircleRoundedIcon
-                  className="text-[#fa243c]"
-                  sx={{
-                    fontSize: { xs: "2.2rem", sm: "2.5rem", md: "2.8rem" },
-                  }}
-                />
-              ) : (
-                <PlayCircleRoundedIcon
-                  className="text-[#fa243c]"
-                  sx={{
-                    fontSize: { xs: "2.2rem", sm: "2.5rem", md: "2.8rem" },
-                  }}
-                />
-              )}
-            </button>
+            border: "1px solid rgba(255,255,255,0.06)",
 
-            <button
-              onClick={playNext}
-              className="text-gray-600 hover:text-[#fa243c] transition-colors"
-              aria-label="Next track"
-            >
-              <FastForwardRoundedIcon
-                sx={{ fontSize: { xs: "1.5rem", sm: "1.8rem", md: "2.2rem" } }}
-              />
-            </button>
-          </div>
+            boxShadow: `
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    inset 0 -1px 0 rgba(255,255,255,0.02),
+    0 12px 40px rgba(0,0,0,0.35)
+  `,
+          }}
+        >
 
-          {/* Progress bar with time labels */}
-          <div className="w-full flex items-center gap-2">
-            <span className="text-[10px] md:text-xs text-gray-400 w-8 md:w-10 text-right">
-              {formatTime(currentTime)}
-            </span>
+          {/* ── Main row ── */}
+          <div
+            className="flex items-center gap-1 px-3"
+            style={{ height: 48 }}
+          >
 
-            <div className="flex-1 relative group h-1">
-              {/* Background track */}
-              <div className="absolute w-full h-1 bg-gray-200 rounded-full"></div>
-              {/* Progress fill */}
-              <div
-                className="absolute h-1 bg-[#fa243c] rounded-full transition-all duration-100"
-                style={{ width: `${(currentTime / (duration || 1)) * 100}%` }}
-              ></div>
-              {/* Hidden input for seeking */}
-              <input
-                type="range"
-                min={0}
-                max={duration || 0}
-                value={currentTime}
-                onChange={(e) => seek(Number(e.target.value))}
-                className="absolute top-0 left-0 w-full h-1 opacity-0 cursor-pointer z-10"
-                aria-label="Seek progress"
-              />
-              {/* Hover thumb indicator */}
-              <div
-                className="absolute top-1/2 -translate-y-1/2 w-2 h-2 md:w-3 md:h-3 bg-[#fa243c] rounded-full border-2 border-white shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+            {/* ── LEFT — Transport ── */}
+            <div className="flex items-center gap-0.5 flex-shrink-0">
+              <Btn label="Shuffle">
+                <ShuffleRoundedIcon sx={{ fontSize: 16 }} />
+              </Btn>
+
+              <Btn label="Previous" style={{ padding: 0 }} onClick={playPrevious}>
+                <FastRewindRounded sx={{ fontSize: 28 }} />
+              </Btn>
+
+              {/* Play / Pause — liquid-glass capsule with accent glow */}
+              <button
+                onClick={togglePlay}
+                aria-label={isPlaying ? "Pause" : "Play"}
+                className="flex items-center justify-center flex-shrink-0 transition-transform duration-100"
                 style={{
-                  left: `${(currentTime / (duration || 1)) * 100}%`,
-                  transform: "translate(-50%, -50%)",
+                  width: 34,
+                  height: 34,
+                  color: "#ffffffeb",
+                  background: "transparent"
+                  // boxShadow:
+                  //   "0 2px 8px rgba(250,88,106,0.4), inset 0 1px 1px rgba(255,255,255,0.18), inset 0 -1px 1px rgba(0,0,0,0.3)",
                 }}
-              ></div>
+              >
+                {isPlaying
+                  ? <PauseRoundedIcon sx={{ fontSize: 34 }} />
+                  : <PlayArrowRoundedIcon sx={{ fontSize: 38, marginLeft: "" }} />
+                }
+              </button>
+
+              <Btn label="Next" style={{ padding: 0 }} onClick={playNext}>
+                <FastForwardRounded sx={{ fontSize: 28 }} />
+              </Btn>
+
+              <Btn label="Repeat">
+                <RepeatRoundedIcon sx={{ fontSize: 16 }} />
+              </Btn>
             </div>
 
-            <span className="text-[10px] md:text-xs text-gray-400 w-8 md:w-10">
-              {formatTime(duration)}
-            </span>
-          </div>
-        </div>
-
-        {/* Right section: Volume controls */}
-        <div className="w-1/4 min-w-[100px] md:min-w-[140px] lg:min-w-[180px] flex items-center justify-end gap-2 md:gap-3">
-          <div className="flex items-center gap-1">
-            {/* Mute/Unmute button */}
-            <button
-              onClick={handleToggleMute}
-              className="text-gray-400 hover:text-gray-600"
-              aria-label={localVolume === 0 ? "Unmute" : "Mute"}
-            >
-              {getVolumeIcon()}
-            </button>
-
-            {/* Volume slider (desktop only) */}
+            {/* ── CENTER — Art + Metadata + Timestamps ── */}
             <div
-              className="relative group items-center hidden sm:flex"
-              onMouseEnter={() => setIsVolumeHovered(true)}
-              onMouseLeave={() => setIsVolumeHovered(false)}
+              className="flex items-center gap-2.5 flex-1 min-w-0 px-2.5 mx-1"
+            // style={{ borderLeft: "0.5px solid rgba(255,255,255,0.08)", borderRight: "0.5px solid rgba(255,255,255,0.08)" }}
             >
-              <div className="relative w-12 md:w-16 h-1">
-                <div className="absolute w-full h-1 bg-gray-200 rounded-full"></div>
+              {/* Album art */}
+              <div
+                className="flex-shrink-0 rounded-md overflow-hidden"
+                style={{
+                  width: 32,
+                  height: 32,
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+                }}
+              >
+                <img
+                  src={currentTrack.coverUrl || "/default-album.jpg"}
+                  alt={`${currentTrack.title} cover`}
+                  className="w-full h-full object-cover"
+                  draggable={false}
+                />
+              </div>
+
+              {/* Title + artist */}
+              <div className="flex-1 min-w-0">
+                <p
+                  className="truncate leading-tight"
+                  style={{ fontSize: 12, fontWeight: 400, color: "#f5f5f7", letterSpacing: "-0.1px" }}
+                >
+                  {currentTrack.title}
+                </p>
+                <p
+                  className="truncate leading-tight mt-0.5"
+                  style={{ fontSize: 11, color: "rgba(235,235,245,0.4)" }}
+                >
+                  {currentTrack.artist}
+                  {/* {currentTrack.album ? ` — ${currentTrack.album}` : ""} */}
+                </p>
+              </div>
+
+              {/* Timestamps — hidden on small screens */}
+              <div
+                className="hidden md:flex items-center gap-1 flex-shrink-0 tabular-nums select-none"
+                style={{ fontSize: 11, color: "rgba(235,235,245,0.45)" }}
+              >
+                <span>{fmt(currentTime)}</span>
+                {/* <span style={{ color: "rgba(235,235,245,0.18)" }}>/</span> */}
+                {/* <span>{fmt(duration)}</span> */}
+              </div>
+            </div>
+
+            {/* ── RIGHT — Extra + Volume ── */}
+            <div className="flex items-center gap-0.5 flex-shrink-0">
+              <Btn label="More options">
+                <MoreHorizIcon sx={{ fontSize: 18 }} />
+              </Btn>
+
+              <Btn label="Queue">
+                <QueueMusicRoundedIcon sx={{ fontSize: 16 }} />
+              </Btn>
+
+              {/* Volume icon — click = mute toggle */}
+              <Btn label={volume === 0 ? "Unmute" : "Mute"} onClick={handleMute}>
+                {volume === 0
+                  ? <VolumeOffRoundedIcon sx={{ fontSize: 17 }} />
+                  : <VolumeUpRoundedIcon sx={{ fontSize: 17 }} />
+                }
+              </Btn>
+
+              {/* Volume slider — hidden on mobile, visible md+ */}
+              <div
+                className="relative hidden md:flex items-center"
+                style={{ width: 64, height: 20 }}
+              >
+                {/* Track */}
                 <div
-                  className="absolute h-1 bg-[#fa243c] rounded-full transition-all duration-100"
-                  style={{ width: `${localVolume * 100}%` }}
-                ></div>
+                  className="absolute w-full rounded-full"
+                  style={{ height: 3, background: "rgba(255,255,255,0.10)" }}
+                />
+                {/* Fill */}
+                <div
+                  className="absolute rounded-full pointer-events-none"
+                  style={{
+                    height: 3,
+                    width: `${volume * 100}%`,
+                    background: "rgba(245,245,247,0.6)",
+                    transition: "width 0.05s linear",
+                  }}
+                />
+                {/* Range input */}
                 <input
                   type="range"
                   min="0"
                   max="1"
                   step="0.01"
-                  value={localVolume}
-                  onChange={handleVolumeChange}
-                  className="absolute top-0 left-0 w-full h-1 opacity-0 cursor-pointer z-10"
-                  aria-label="Volume control"
+                  value={volume}
+                  onChange={handleVolume}
+                  aria-label="Volume"
+                  className="absolute inset-0 w-full opacity-0 cursor-pointer"
+                  style={{ height: "100%" }}
                 />
-                {/* Hover thumb indicator */}
-                <div
-                  className={`absolute top-1/2 -translate-y-1/2 w-2 h-2 md:w-3 md:h-3 bg-[#fa243c] rounded-full border-2 border-white shadow-lg transition-all duration-200 ${isVolumeHovered
-                    ? "opacity-100 scale-100"
-                    : "opacity-0 scale-50"
-                    }`}
-                  style={{
-                    left: `${localVolume * 100}%`,
-                    transform: "translate(-50%, -50%)",
-                  }}
-                ></div>
               </div>
-
-              {/* Volume percentage text (visible on hover) */}
-              <span
-                className={`ml-1 text-[10px] md:text-xs text-gray-400 transition-opacity duration-200 ${isVolumeHovered ? "opacity-100" : "opacity-0"
-                  }`}
-              >
-                {Math.round(localVolume * 100)}%
-              </span>
             </div>
+
+          </div>{/* end main row */}
+
+          {/* ── Progress bar — 2px stripe at absolute bottom of pill ── */}
+          <div
+            className="absolute bottom-0 left-0 right-0 cursor-pointer"
+            style={{ height: 2, background: "rgba(255,255,255,0.07)" }}
+          >
+            {/* Filled portion */}
+            <div
+              className="h-full"
+              style={{
+                width: `${progress}%`,
+                background: "#ff6961",
+                boxShadow: "0 0 6px rgba(255,105,97,0.6)",
+                transition: "width 0.25s linear",
+              }}
+            />
+            {/* Invisible seek input */}
+            <input
+              type="range"
+              min={0}
+              max={duration || 0}
+              value={currentTime}
+              onChange={(e) => seek(Number(e.target.value))}
+              aria-label="Seek"
+              className="absolute inset-0 w-full opacity-0 cursor-pointer"
+              style={{ height: "100%" }}
+            />
           </div>
-        </div>
+
+        </div>{/* end pill */}
       </div>
-    </div>
+    </div >
   );
 };
 

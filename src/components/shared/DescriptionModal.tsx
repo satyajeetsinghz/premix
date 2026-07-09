@@ -1,9 +1,13 @@
 /**
  * @fileoverview Reusable modal component for displaying rich text descriptions (e.g., song/album notes, artist bios).
+ * Dark, centered card variant, matching Apple Music Web's "About" panel: a dimmed backdrop
+ * that still shows the page behind it, a rounded dark-gray card floating in the center, a
+ * plain close icon top-left, bold title + muted gray subtitle, a hairline divider, and a
+ * scrollable body with a visible thin scrollbar and a bottom fade mask.
  *
  * Responsibilities:
- * - Render a centered modal dialog with overlay backdrop
- * - Display title, subtitle (accent color), and multi-paragraph description
+ * - Render a centered modal card with a dimmed (non-blurred) overlay backdrop
+ * - Display title, subtitle (muted gray, matching the reference), and multi-paragraph description
  * - Handle escape key and overlay click dismissal
  * - Prevent body scroll while modal is open
  * - Split description text by double newlines into semantic paragraphs
@@ -15,13 +19,22 @@
  * Architectural role:
  * - **Portal-based modal** rendered directly under document.body (avoids z-index stacking context issues)
  * - Reusable across multiple features (songs, albums, playlists, user-generated content)
- * - Fixed position with backdrop blur for visual depth
+ * - Centered floating card over a dimmed backdrop — the reference keeps the page (sidebar,
+ *   album art, track list) visible and simply darkened behind the card, rather than blurring
+ *   or fully replacing it with a full-screen sheet.
  *
- * Design tokens:
- * - Modal max width: 560px (optimal readability for body text)
- * - Modal max height: 80vh (prevents overflow on smaller screens)
- * - Subtitle color: Brand red (#fa243c) for visual hierarchy
- * - Body text: #3c3c43 (slightly softer than pure black for readability)
+ * Design tokens (dark card, matched to reference):
+ * - Overlay: solid dim (~45% black), no blur — the page stays sharp behind the card
+ * - Card surface: dark gray (#2c2c2e), rounded-2xl corners, subtle shadow for lift
+ * - Card width: wide (up to ~860px), height capped so the page frame stays visible around it
+ * - Close icon: top-left, plain (no background chip), gray → white on hover
+ * - Title: large, bold, near-white
+ * - Subtitle: muted gray ("Artist · Year"), not the brand red
+ * - Hairline divider beneath the header, separating it from the scrollable body
+ * - Body text: off-white, generous line-height for long-form reading
+ * - Custom scrollbar: thin gray thumb on a barely-visible track
+ * - Bottom fade mask: content fades to the card background near the bottom edge of the
+ *   scroll area, signaling there's more to scroll
  *
  * Accessibility:
  * - role="dialog" + aria-modal="true" announces modal to screen readers
@@ -51,7 +64,7 @@ import CloseIcon from "@mui/icons-material/Close";
  * Props for the DescriptionModal component.
  *
  * @property title - Modal heading (displayed prominently, e.g., song title or section name)
- * @property subtitle - Secondary text displayed below title in brand accent color (e.g., artist name or album)
+ * @property subtitle - Secondary text displayed below title (e.g., "Artist · Year")
  * @property description - Rich text content. Double newlines ("\n\n") are automatically split into separate <p> tags
  * @property onClose - Callback invoked when modal should close (user clicks overlay, Escape key, or close button)
  */
@@ -65,11 +78,27 @@ interface DescriptionModalProps {
 /**
  * Modal dimension constraints.
  *
- * - MODAL_MAX_WIDTH: 560px (optimal line length for body text, 50-75 characters per line)
- * - MODAL_MAX_HEIGHT: 80vh (prevents modal from exceeding viewport, shows scrollbar internally)
+ * - MODAL_MAX_WIDTH: 860px — wide enough for the reference's generous line length while
+ *   still leaving the page frame (sidebar, artwork) visible around it
+ * - MODAL_MAX_HEIGHT: 78vh — keeps the card well inside the viewport so the dimmed
+ *   backdrop reads clearly on all sides
  */
-const MODAL_MAX_WIDTH = 560;
-const MODAL_MAX_HEIGHT = "80vh";
+const MODAL_MAX_WIDTH = 860;
+const MODAL_MAX_HEIGHT = "78vh";
+
+/**
+ * Dark card design tokens.
+ * Centralized so the surface/text treatment stays consistent and easy to retune.
+ */
+const OVERLAY = "rgba(0,0,0,0.55)";
+const CARD_BG = "#1f1f1f";
+const BORDER = "rgba(255,255,255,0.08)";
+const TEXT_TITLE = "#f5f5f7";
+const TEXT_SUBTITLE = "#8e8e93";
+const TEXT_BODY = "rgba(245,245,247,0.92)";
+const CLOSE_ICON = "#8e8e93";
+const CLOSE_ICON_HOVER = "#f5f5f7";
+const SCROLLBAR_CLASS = "description-modal-scroll";
 
 /**
  * Splits a description string into an array of paragraphs.
@@ -91,30 +120,30 @@ const splitDescriptionText = (description: string) =>
   description.split("\n\n").map((para) => para.trim());
 
 /**
- * DescriptionModal - Modal dialog for displaying formatted text content.
+ * DescriptionModal - Centered dark card for displaying formatted text content.
  *
  * Usage example:
  * ```tsx
  * <DescriptionModal
- *   title="Bohemian Rhapsody"
- *   subtitle="Queen · 1975"
- *   description="Written by Freddie Mercury...\n\nRecorded over three weeks..."
+ *   title="Album Title"
+ *   subtitle="Artist · Year"
+ *   description="First paragraph of editorial copy...\n\nSecond paragraph..."
  *   onClose={() => setShowModal(false)}
  * />
  * ```
  *
  * Visual hierarchy:
- * 1. Title (22px bold, tight tracking)
- * 2. Subtitle (14px semibold, brand red)
- * 3. Description paragraphs (14px, 1.7 line height for readability)
+ * 1. Title (28-32px bold, tight tracking, near-white) — pinned in the header
+ * 2. Subtitle (14px medium, muted gray) — pinned in the header, directly under the title
+ * 3. Description paragraphs (16px, 1.7 line height) — scrollable body beneath a hairline divider
  *
  * Dismissal methods:
- * - Clicking overlay backdrop
+ * - Clicking the dimmed backdrop
  * - Pressing Escape key
- * - Clicking close button (top-right corner)
+ * - Clicking the close icon (top-left, matching the reference)
  *
  * @param props - DescriptionModalProps
- * @returns Portal-rendered modal dialog
+ * @returns Portal-rendered modal card
  */
 export const DescriptionModal = ({
   title,
@@ -219,47 +248,92 @@ export const DescriptionModal = ({
   return createPortal(
     <div
       ref={overlayRef}
-      className="fixed inset-0 z-[200] bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4"
+      className="fixed inset-0 z-[200] flex items-center justify-center p-7 sm:p-14 animate-in fade-in duration-200"
+      style={{ backgroundColor: OVERLAY }}
       onClick={handleOverlayClick}
       role="presentation"
-      aria-hidden="true"
     >
+      {/* Scoped scrollbar styling — thin gray thumb on a near-invisible track,
+          matching the visible custom scrollbar in the reference rather than
+          leaving the browser default in place. */}
+      <style>{`
+        .${SCROLLBAR_CLASS}::-webkit-scrollbar {
+          width: 8px;
+        }
+        .${SCROLLBAR_CLASS}::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .${SCROLLBAR_CLASS}::-webkit-scrollbar-thumb {
+          background-color: rgba(255,255,255,0.28);
+          border-radius: 9999px;
+        }
+        .${SCROLLBAR_CLASS}::-webkit-scrollbar-thumb:hover {
+          background-color: rgba(255,255,255,0.4);
+        }
+        .${SCROLLBAR_CLASS} {
+          scrollbar-width: thin;
+          scrollbar-color: rgba(255,255,255,0.28) transparent;
+        }
+      `}</style>
+
       <div
-        className="relative w-full bg-white rounded-2xl shadow-2xl overflow-hidden"
-        style={{ maxWidth: MODAL_MAX_WIDTH, maxHeight: MODAL_MAX_HEIGHT }}
+        className="relative w-full rounded-lg overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+        style={{
+          maxWidth: MODAL_MAX_WIDTH,
+          maxHeight: MODAL_MAX_HEIGHT,
+          backgroundColor: CARD_BG,
+          boxShadow: "0 24px 70px rgba(0,0,0,0.5)",
+        }}
         role="dialog"
         aria-modal="true"
         aria-label={`${title} description`}
       >
-        {/* Close button - positioned absolutely in top-right corner */}
+        {/* Close button - top-left, plain icon, matching the reference */}
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-[#f5f5f7] flex items-center justify-center text-[#6e6e73] hover:bg-[#e5e5ea] transition-colors"
+          className="absolute top-3 left-3 z-10 w-8 h-8 flex items-center justify-center rounded-full transition-colors duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+          style={{ color: CLOSE_ICON, outlineColor: "#0a84ff" }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = CLOSE_ICON_HOVER)}
+          onMouseLeave={(e) => (e.currentTarget.style.color = CLOSE_ICON)}
           aria-label="Close description modal"
         >
-          <CloseIcon sx={{ fontSize: 16 }} />
+          <CloseIcon sx={{ fontSize: 34 }} />
         </button>
 
-        {/* Scrollable content area - independent of modal container */}
+        {/* Header — title + subtitle, hairline divider beneath */}
         <div
-          className="overflow-y-auto p-8"
-          style={{ maxHeight: MODAL_MAX_HEIGHT }}
+          className="pt-14 pb-3 px-5"
+          style={{ borderBottom: `1px solid ${BORDER}` }}
         >
-          {/* Title section */}
-          <h2 className="text-[22px] font-bold text-[#1d1d1f] tracking-[-0.3px] leading-tight pr-8">
+          <h2
+            className="text-[26px] sm:text-[30px] font-semibold tracking-tight pr-8"
+            style={{ color: TEXT_TITLE }}
+          >
             {title}
           </h2>
-
-          {/* Subtitle section - brand red for emphasis */}
           <p
-            className="text-[14px] font-semibold mt-1 mb-5"
-            style={{ color: "#fa243c" }}
+            className="text-[14px] font-semibold -mt-[6px]"
+            style={{ color: TEXT_SUBTITLE }}
           >
             {subtitle}
           </p>
+        </div>
 
-          {/* Description paragraphs - rendered with spacing between */}
-          <div className="text-[14px] text-[#3c3c43] leading-[1.7] space-y-4">
+        {/* Scrollable content area with bottom fade mask hinting more content below */}
+        <div
+          className={`overflow-y-auto px-5 pt-2 pb-12 ${SCROLLBAR_CLASS}`}
+          style={{
+            maxHeight: `calc(${MODAL_MAX_HEIGHT} - 110px)`,
+            maskImage:
+              "linear-gradient(to bottom, black 0%, black 92%, transparent 100%)",
+            WebkitMaskImage:
+              "linear-gradient(to bottom, black 0%, black 92%, transparent 100%)",
+          }}
+        >
+          <div
+            className="text-[15px] space-y-4"
+            style={{ color: TEXT_BODY }}
+          >
             {paragraphs.map((paragraph, idx) => (
               <p key={idx}>{paragraph}</p>
             ))}

@@ -132,7 +132,15 @@ const AppContent = () => {
   // Priority 3: Show loading state while authentication is in progress
   if (loading) {
     return (
-      <div className="h-screen bg-[linear-gradient(135deg,#FF6B7A_0%,#FA586A_20%,#F02A42_55%,#D60017_100%)] flex items-center justify-center">
+      <div className="h-screen flex items-center justify-center" style={{
+        background: `
+    linear-gradient(
+      180deg,
+      rgba(42,42,44,0.92) 0%,
+      rgba(31,31,31,0.88) 45%,
+      rgba(22,22,24,0.92) 100%
+    )
+  `}}>
         <div className="flex flex-col items-center gap-4">
           {/* Animated spinner with Premix brand color (red #fa243c) */}
           {/* <AnimatedSpinner size={28} color="#fa243c" /> */}

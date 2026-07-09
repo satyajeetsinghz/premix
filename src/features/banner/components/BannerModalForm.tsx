@@ -12,6 +12,7 @@
  * - BannerManager (src/features/banner/components/BannerManager.tsx) - Opens this modal
  * - cloudinary.service (src/features/admin/services/cloudinary.service.ts) - File uploads
  * - useSongs (src/features/songs/hooks/useSongs.ts) - Fetches songs for redirect dropdown
+ * - media (src/features/banner/utils/media.ts) - Shared video/image detection helpers
  *
  * Architectural role:
  * - **Create/Edit modal** for banner management (admin only)
@@ -42,6 +43,16 @@
  * - When editing, missing startDate/endDate triggers deleteField()
  * - Prevents stale date fields from persisting in Firestore
  *
+ * mediaType integrity (bugfix):
+ * - Previously, clicking the "Image" tab unconditionally set form.mediaType
+ *   to "image", even when a video had already been uploaded — this silently
+ *   corrupted video banners into { mediaType: "image", mediaUrl: <mp4> }.
+ * - Fixed by decoupling `activeMediaTab` (purely a UI panel toggle) from
+ *   `form.mediaType` (only ever set by a successful upload).
+ * - `resolveMediaType()` is applied on initial load (self-heals existing
+ *   corrupted documents when reopened for edit) and again in handleSubmit
+ *   as a final defensive guard before writing to Firestore.
+ *
  * @module features/banner/components
  */
 
@@ -66,6 +77,7 @@ import LinkIcon from "@mui/icons-material/Link";
 import PlayCircleIcon from "@mui/icons-material/PlayCircle";
 import { uploadToCloudinary } from "@/features/admin/services/cloudinary.service";
 import { useSongs } from "@/features/songs/hooks/useSongs";
+import { resolveMediaType } from "../utils/media";
 import { IBanner } from "../types";
 
 /**
@@ -145,7 +157,8 @@ const toTimestamp = (value: string): Timestamp | null => {
  * ```
  *
  * Form fields:
- * - Media type toggle (Image/Video)
+ * - Media type toggle (Image/Video) — UI panel switch only, does NOT
+ *   directly set form.mediaType (see mediaType integrity note above)
  * - Media upload (image required, video optional)
  * - Title (required)
  * - Subtitle (optional)
@@ -161,9 +174,10 @@ const toTimestamp = (value: string): Timestamp | null => {
  * - Image URL required (must upload image before save)
  * - Redirect ID required (song, artist ID, or section ID)
  * - End date must be after start date (if both provided)
+ * - Image/video file MIME type is validated before upload
  *
  * File upload constraints:
- * - Image: Max 5MB, JPG/PNG, 1200x400px recommended
+ * - Image: Max 5MB, JPG/PNG/WebP, 1200x400px recommended
  * - Video: Max 50MB, MP4/WebM, 1200x400px recommended
  *
  * @param props - BannerFormModalProps
@@ -176,13 +190,18 @@ const BannerFormModal = ({ banner, onClose }: Props) => {
   const [form, setForm] = useState({
     title: banner?.title ?? "",
     subtitle: banner?.subtitle ?? "",
+    eyebrow: banner?.eyebrow ?? "",
+    caption: banner?.caption ?? "",
     imageUrl: banner?.imageUrl ?? "",
     mediaUrl: banner?.mediaUrl ?? "",
     buttonText: banner?.buttonText ?? "Listen Now",
     redirectType: banner?.redirectType ?? "song",
     redirectId: banner?.redirectId ?? "",
     order: banner?.order ?? 1,
-    mediaType: banner?.mediaType ?? "image",
+    // Self-heals corrupted documents: if this banner was previously saved
+    // with mediaType "image" alongside an actual video mediaUrl (the bug),
+    // the edit form now opens already showing it correctly as a video.
+    mediaType: resolveMediaType(banner?.mediaType, banner?.mediaUrl),
     startDate: toLocalInput(banner?.startDate),
     endDate: toLocalInput(banner?.endDate),
   });
@@ -192,8 +211,11 @@ const BannerFormModal = ({ banner, onClose }: Props) => {
   const [uploading, setUploading] = useState({ image: false, video: false });
   const [imagePreview, setImagePreview] = useState(banner?.imageUrl ?? "");
   const [videoPreview, setVideoPreview] = useState(banner?.mediaUrl ?? "");
+  // Purely a UI panel toggle — which upload section is visible. Does NOT
+  // drive form.mediaType directly; that's only ever set by a successful
+  // upload in handleImageUpload / handleVideoUpload.
   const [activeMediaTab, setActiveMediaTab] = useState<"image" | "video">(
-    banner?.mediaType === "video" ? "video" : "image",
+    resolveMediaType(banner?.mediaType, banner?.mediaUrl),
   );
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const [videoUploadError, setVideoUploadError] = useState<string | null>(null);
@@ -216,12 +238,15 @@ const BannerFormModal = ({ banner, onClose }: Props) => {
    * Handles image file upload to Cloudinary.
    *
    * Steps:
-   * 1. Validate file selection
+   * 1. Validate file selection + MIME type (must be image/*)
    * 2. Create object URL for preview (revoke old if exists)
    * 3. Set uploading state
    * 4. Upload to Cloudinary
    * 5. Update form.imageUrl with response URL
    * 6. Handle errors with user-friendly message
+   *
+   * Deliberately does NOT set form.mediaType — imageUrl is always the
+   * poster/fallback image, never the field that determines video vs image.
    *
    * @param e - File input change event
    */
@@ -229,6 +254,10 @@ const BannerFormModal = ({ banner, onClose }: Props) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setImageUploadError(null);
+    if (!file.type.startsWith("image/")) {
+      setImageUploadError("Please select a valid image file");
+      return;
+    }
     if (imageObjUrl.current) URL.revokeObjectURL(imageObjUrl.current);
     const objUrl = URL.createObjectURL(file);
     imageObjUrl.current = objUrl;
@@ -252,6 +281,9 @@ const BannerFormModal = ({ banner, onClose }: Props) => {
    * Additional validation:
    * - File type must start with "video/"
    * - File size must be ≤ 50MB
+   *
+   * On success, sets both mediaUrl AND mediaType: "video" together —
+   * this is the only place mediaType should ever become "video".
    *
    * @param e - File input change event
    */
@@ -320,6 +352,11 @@ const BannerFormModal = ({ banner, onClose }: Props) => {
    * - Title and imageUrl required
    * - End date must be after start date (if both provided)
    *
+   * mediaType is re-resolved one final time here as a defensive guard —
+   * even if some future change to the tab UI reintroduces a similar bug,
+   * this line guarantees Firestore never receives mediaType:"image"
+   * alongside a mediaUrl that is actually a video asset.
+   *
    * Create flow:
    * - Add document to banners collection
    * - Include createdAt server timestamp
@@ -346,13 +383,20 @@ const BannerFormModal = ({ banner, onClose }: Props) => {
       const startTs = toTimestamp(form.startDate);
       const endTs = toTimestamp(form.endDate);
 
+      // Final defensive normalization — never write an inconsistent
+      // mediaType/mediaUrl pair to Firestore, regardless of how form state
+      // got here.
+      const finalMediaType = resolveMediaType(form.mediaType, form.mediaUrl);
+
       // Base payload (common to create and update)
       const basePayload: Record<string, any> = {
         title: form.title,
         subtitle: form.subtitle,
+        eyebrow: form.eyebrow,
+        caption: form.caption,
         imageUrl: form.imageUrl,
         mediaUrl: form.mediaUrl,
-        mediaType: form.mediaType,
+        mediaType: finalMediaType,
         buttonText: form.buttonText,
         redirectType: form.redirectType,
         redirectId: form.redirectId,
@@ -403,30 +447,25 @@ const BannerFormModal = ({ banner, onClose }: Props) => {
 
         {/* Scrollable form content */}
         <div className="p-6 space-y-5 max-h-[60vh] overflow-y-auto">
-          {/* Media type toggle (Image/Video) */}
+          {/* Media type toggle (Image/Video) — panel switch only,
+              does not write to form.mediaType directly */}
           <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
             <button
               type="button"
-              onClick={() => {
-                setActiveMediaTab("image");
-                setForm((p) => ({ ...p, mediaType: "image" }));
-              }}
+              onClick={() => setActiveMediaTab("image")}
               className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeMediaTab === "image"
-                  ? "bg-white text-[#fa243c] shadow-sm"
-                  : "text-gray-600 hover:text-gray-900"
+                ? "bg-white text-[#fa243c] shadow-sm"
+                : "text-gray-600 hover:text-gray-900"
                 }`}
             >
               <ImageIcon fontSize="small" /> Image
             </button>
             <button
               type="button"
-              onClick={() => {
-                setActiveMediaTab("video");
-                setForm((p) => ({ ...p, mediaType: "video" }));
-              }}
+              onClick={() => setActiveMediaTab("video")}
               className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeMediaTab === "video"
-                  ? "bg-white text-[#fa243c] shadow-sm"
-                  : "text-gray-600 hover:text-gray-900"
+                ? "bg-white text-[#fa243c] shadow-sm"
+                : "text-gray-600 hover:text-gray-900"
                 }`}
             >
               <VideoLibraryIcon fontSize="small" /> Video
@@ -486,7 +525,7 @@ const BannerFormModal = ({ banner, onClose }: Props) => {
                   )}
                 </label>
                 {imageUploadError && (
-                  <p className="text-xs text-#fa243c mt-1">{imageUploadError}</p>
+                  <p className="text-xs text-[#fa243c] mt-1">{imageUploadError}</p>
                 )}
                 <p className="text-xs text-gray-400 mt-1">
                   Recommended: 1200x400px, JPG/PNG up to 5MB
@@ -551,7 +590,7 @@ const BannerFormModal = ({ banner, onClose }: Props) => {
                   )}
                 </label>
                 {videoUploadError && (
-                  <p className="text-xs text-#fa243c mt-1">{videoUploadError}</p>
+                  <p className="text-xs text-[#fa243c] mt-1">{videoUploadError}</p>
                 )}
                 <p className="text-xs text-gray-400 mt-1">
                   MP4, WebM up to 50MB. Recommended: 1200x400px
@@ -602,6 +641,44 @@ const BannerFormModal = ({ banner, onClose }: Props) => {
               value={form.subtitle}
               onChange={(e) =>
                 setForm((p) => ({ ...p, subtitle: e.target.value }))
+              }
+            />
+          </div>
+
+          {/* Eyebrow Field  */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Eyebrow
+            </label>
+
+            <input
+              placeholder="e.g. Updated Playlist"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm"
+              value={form.eyebrow}
+              onChange={(e) =>
+                setForm((p) => ({
+                  ...p,
+                  eyebrow: e.target.value,
+                }))
+              }
+            />
+          </div>
+
+          {/* Caption Field  */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              Caption
+            </label>
+
+            <input
+              placeholder="e.g. Experience the World Cup like never before"
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm"
+              value={form.caption}
+              onChange={(e) =>
+                setForm((p) => ({
+                  ...p,
+                  caption: e.target.value,
+                }))
               }
             />
           </div>

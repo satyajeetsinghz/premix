@@ -24,3 +24,5 @@ dist-ssr
 *.sw?
 .env
 backups
+src/components/shared/PageTemplate.tsx
+src/components/shared/TestingPage.tsx

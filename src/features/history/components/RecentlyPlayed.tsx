@@ -1,46 +1,17 @@
 /**
- * @fileoverview Recently played tracks section for user profile and home page.
+ * @fileoverview Recently played tracks section — Apple Music dark theme.
  *
- * Responsibilities:
- * - Display user's recently played tracks in a horizontal scrollable carousel
- * - Provide "Clear History" button with two-step confirmation
- * - Show loading skeletons while fetching history
- * - Handle clear history operation with error feedback
+ * All business logic, Firebase integration, and data flow are unchanged:
+ * - useHistory hook subscription to /users/{uid}/history
+ * - Two-step clear confirmation (irreversible destructive action)
+ * - disableLike on SongCard to prevent writes on suspended accounts
+ * - Inline error feedback below section on clear failure
  *
- * Related modules:
- * - useHistory (src/features/history/hooks/useHistory.ts) - Fetches user's play history
- * - historyService (src/features/history/services/historyService.ts) - Contains clearHistory function
- * - SongCard (src/features/songs/components/SongCard.tsx) - Displays individual track
- * - SectionShell (src/components/shared/SectionShell.tsx) - Provides horizontal scroll container
- *
- * Architectural role:
- * - **User history display component** used in ProfilePage
- * - Shows most recent tracks first (ordered by lastPlayedAt descending)
- * - Tracks appear as playable SongCards without like functionality
- *
- * Firestore data model (from HANDOFF_CORE.md):
- * - Collection: /users/{uid}/history/{trackId}
- * - Each document: { trackId: string, lastPlayedAt: Timestamp }
- * - No duplicate tracks (trackId as document ID ensures uniqueness)
- *
- * Clear history behavior:
- * - Deletes ALL history documents in /users/{uid}/history subcollection
- * - Updates tracked via Firestore batch write
- * - After clearing, component returns null (hides section)
- *
- * Confirmation flow:
- * 1. User clicks "Clear History" button
- * 2. Confirmation buttons appear ("Yes"/"No") replacing action button
- * 3. User confirms → clearHistory() called → Firestore deletes documents
- * 4. Real-time listener refreshes data → section hides
- * 5. User cancels → revert to normal action button
- *
- * Suspension handling:
- * - disableLike={true} prevents write attempts on suspended accounts
- * - Suspended users can view history but cannot like songs from this section
- * - Clear history button is disabled for suspended users (isWriteable() = false)
- *
- * @module features/history/components
+ * Visual changes:
+ * - Dark-theme action button and confirmation pill
+ * - Loading skeletons use dark surface colours (#1c1c1e)
+ * - All spacing follows the 4/8/12/16/24 scale
+ * - Typography uses SF Pro weights (500 medium, 600 semibold)
  */
 
 import { useState, useCallback } from "react";
@@ -50,33 +21,19 @@ import { clearHistory } from "../services/historyService";
 import SongCard from "@/features/songs/components/SongCard";
 import { SectionShell } from "@/components/shared/SectionShell";
 
-/**
- * RecentlyPlayed - Displays user's listening history in a carousel.
- *
- * Usage in ProfilePage:
- * ```tsx
- * <RecentlyPlayed />
- * ```
- *
- * Data fetching:
- * - useHistory hook subscribes to /users/{uid}/history subcollection
- * - Real-time updates: new played tracks appear automatically
- * - Ordered by lastPlayedAt descending (most recent first)
- *
- * Empty state:
- * - If no history tracks, component returns null (not rendered)
- * - Prevents empty section from appearing on profile page
- *
- * Loading state:
- * - Shows 6 skeleton cards while fetching
- * - Matches SongCard aspect ratio and approximate dimensions
- *
- * Error handling:
- * - Clear history errors shown inline below section
- * - Toast notification pattern not used (inline error for context)
- *
- * @returns Recently played section or null if no tracks
- */
+// ── Design tokens (inline for portability) ────────────────────────────────────
+const RED = "#fa243c";
+const RED_ALPHA_12 = "rgba(250,36,60,0.12)";
+const RED_ALPHA_20 = "rgba(250,36,60,0.20)";
+const RED_ALPHA_08 = "rgba(250,36,60,0.08)";
+const RED_ALPHA_18 = "rgba(250,36,60,0.18)";
+const RED_HOVER = "#e01e33";
+const SURFACE_CARD = "#1c1c1e"; // dark card surface
+const TEXT_MUTED = "#6e6e73";
+const TEXT_SECONDARY = "#8e8e93";
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const RecentlyPlayed = () => {
   const { user } = useAuth();
   const { historyTracks, loading, refresh } = useHistory(user?.uid ?? "");
@@ -84,23 +41,6 @@ const RecentlyPlayed = () => {
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearError, setClearError] = useState<string | null>(null);
 
-  /**
-   * Handles clearing all history with confirmation.
-   *
-   * Flow:
-   * 1. Validate user exists
-   * 2. Set clearing state (disables buttons)
-   * 3. Clear error state
-   * 4. Close confirmation UI
-   * 5. Call clearHistory service (batch delete all user history documents)
-   * 6. Refresh local cache (real-time listener will also update)
-   * 7. On error: show inline error message
-   * 8. Finally: clear clearing state
-   *
-   * Side effect: Deletes all documents in /users/{uid}/history subcollection
-   *
-   * @async
-   */
   const handleClearConfirm = useCallback(async () => {
     if (!user?.uid) return;
     setClearing(true);
@@ -108,31 +48,59 @@ const RecentlyPlayed = () => {
     setConfirmClear(false);
     try {
       await clearHistory(user.uid);
-      refresh(); // Manually refresh cache (real-time listener also triggers)
+      refresh();
     } catch {
-      setClearError("Failed to clear history. Please try again.");
+      setClearError("Couldn't clear history. Please try again.");
     } finally {
       setClearing(false);
     }
   }, [user?.uid, refresh]);
 
-  // --- Loading state: show skeleton cards ---
+  // ── Loading state ───────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="w-full animate-pulse">
+      <div className="w-full">
+        {/* Skeleton header */}
         <div className="flex items-center justify-between mb-4 px-0.5">
           <div className="flex items-center gap-2">
-            <div className="w-[3px] h-5 bg-gray-200 rounded-full" />
-            <div className="h-5 w-36 bg-gray-200 rounded-md" />
+            <div
+              className="rounded-full animate-pulse"
+              style={{ width: 3, height: 18, background: SURFACE_CARD }}
+            />
+            <div
+              className="rounded-md animate-pulse"
+              style={{ width: 144, height: 15, background: SURFACE_CARD }}
+            />
           </div>
-          <div className="w-24 h-7 bg-gray-100 rounded-full" />
+          <div
+            className="rounded-full animate-pulse"
+            style={{ width: 80, height: 26, background: SURFACE_CARD }}
+          />
         </div>
+
+        {/* Skeleton cards */}
         <div className="flex gap-3 sm:gap-4 overflow-hidden">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="w-[140px] sm:w-[172px] flex-shrink-0">
-              <div className="aspect-square bg-gray-100 rounded-xl mb-2" />
-              <div className="h-3.5 bg-gray-100 rounded w-3/4 mb-1.5" />
-              <div className="h-3   bg-gray-100 rounded w-1/2" />
+            <div
+              key={i}
+              className="flex-shrink-0"
+              style={{ width: "clamp(140px, 18vw, 172px)" }}
+            >
+              <div
+                className="animate-pulse rounded-[10px] mb-2"
+                style={{
+                  aspectRatio: "1",
+                  background: SURFACE_CARD,
+                }}
+              />
+              <div
+                className="animate-pulse rounded mb-1.5"
+                style={{ height: 11, width: "75%", background: SURFACE_CARD }}
+              />
+              <div
+                className="animate-pulse rounded"
+                style={{ height: 10, width: "50%", background: SURFACE_CARD }}
+              />
             </div>
           ))}
         </div>
@@ -140,36 +108,64 @@ const RecentlyPlayed = () => {
     );
   }
 
-  // --- Empty state: don't render anything ---
+  // ── Empty state ─────────────────────────────────────────────────────────────
   if (!historyTracks?.length) return null;
 
+  // ── Action slot (passed to SectionShell) ────────────────────────────────────
   /**
-   * Action button configuration for SectionShell.
+   * Two-step confirmation pill.
    *
-   * Two states:
-   * 1. Normal mode: "Clear History" button
-   * 2. Confirmation mode: "Yes"/"No" buttons inline
+   * Confirmation mode: "Remove? [Yes] [No]" — compact inline pill.
+   * Normal mode: "Clear History" — quiet ghost button.
    *
-   * Why two-state UI?
-   * - Prevents accidental history deletion (irreversible operation)
-   * - Clear action is destructive and should require explicit confirmation
-   * - Inline confirmation matches Apple Music and Spotify patterns
+   * Colour: red-tinted backgrounds, not solid red, so the action
+   * reads as secondary (destructive but not primary CTA).
    */
   const action = confirmClear ? (
-    <div className="flex items-center gap-1.5 bg-red-50 border border-red-100 rounded-[980px] px-2.5 py-1">
-      <span className="text-xs font-medium text-red-500 whitespace-nowrap">
+    <div
+      className="flex items-center gap-1.5"
+      style={{
+        background: RED_ALPHA_08,
+        border: `1px solid ${RED_ALPHA_18}`,
+        borderRadius: 980,
+        padding: "5px 10px",
+      }}
+    >
+      <span
+        style={{
+          fontSize: 11,
+          fontWeight: 500,
+          color: RED,
+          whiteSpace: "nowrap",
+        }}
+      >
         Remove?
       </span>
       <button
         onClick={handleClearConfirm}
         disabled={clearing}
-        className="text-xs font-semibold text-white bg-[#fa243c] rounded-[980px] px-2 py-0.5 hover:bg-[#e01e33] transition-colors disabled:opacity-50 border-none cursor-pointer"
+        className="border-none cursor-pointer transition-colors duration-150 disabled:opacity-50"
+        style={{
+          fontSize: 11,
+          fontWeight: 600,
+          color: "#ffffff",
+          background: RED,
+          borderRadius: 980,
+          padding: "3px 10px",
+        }}
+        onMouseOver={(e) =>
+          ((e.target as HTMLButtonElement).style.background = RED_HOVER)
+        }
+        onMouseOut={(e) =>
+          ((e.target as HTMLButtonElement).style.background = RED)
+        }
       >
         {clearing ? "…" : "Yes"}
       </button>
       <button
         onClick={() => setConfirmClear(false)}
-        className="text-xs font-semibold text-gray-500 hover:text-gray-800 transition-colors bg-none border-none cursor-pointer"
+        className="border-none cursor-pointer transition-colors duration-150 bg-transparent"
+        style={{ fontSize: 11, fontWeight: 600, color: TEXT_SECONDARY }}
       >
         No
       </button>
@@ -178,32 +174,65 @@ const RecentlyPlayed = () => {
     <button
       onClick={() => setConfirmClear(true)}
       disabled={clearing}
-      className="text-xs text-gray-400 hover:text-[#fa243c] transition-colors px-3 py-1.5 rounded-[980px] bg-gray-50 hover:bg-red-50 border border-transparent hover:border-red-100 disabled:opacity-50 whitespace-nowrap"
+      className="border-none cursor-pointer transition-all duration-150 disabled:opacity-50 whitespace-nowrap"
+      style={{
+        fontSize: 12,
+        fontWeight: 500,
+        color: TEXT_MUTED,
+        background: "rgba(255,255,255,0.06)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 980,
+        padding: "5px 14px",
+      }}
+      onMouseOver={(e) => {
+        const btn = e.currentTarget;
+        btn.style.color = RED;
+        btn.style.background = RED_ALPHA_12;
+        btn.style.borderColor = RED_ALPHA_20;
+      }}
+      onMouseOut={(e) => {
+        const btn = e.currentTarget;
+        btn.style.color = TEXT_MUTED;
+        btn.style.background = "rgba(255,255,255,0.06)";
+        btn.style.borderColor = "rgba(255,255,255,0.08)";
+      }}
     >
       {clearing ? "Removing…" : "Clear History"}
     </button>
   );
 
+  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="w-full">
-      {/* SectionShell provides horizontal scrolling container with arrows */}
-      <SectionShell title="Recently Played" action={action} groupName="recent">
+      <SectionShell title="Recently Played" action={action}>
         {historyTracks.map((track, index) => (
-          <div key={track.id} className="w-[140px] sm:w-[172px] flex-shrink-0">
+          <div
+            key={track.id}
+            className="flex-shrink-0"
+            style={{
+              width: "clamp(132px, 32vw, 172px)",
+            }}
+          >
             <SongCard
               track={track}
               songs={historyTracks}
               variant="default"
               index={index}
-              disableLike={true} // Disable like button for history items (prevents write operations on suspended accounts)
+              disableLike
             />
           </div>
         ))}
       </SectionShell>
 
-      {/* Inline error message (appears below section on clear failure) */}
+      {/* Inline clear-history error */}
       {clearError && (
-        <p className="text-xs text-red-500 mt-2 px-0.5">{clearError}</p>
+        <p
+          className="mt-2 px-0.5"
+          style={{ fontSize: 12, color: RED }}
+          role="alert"
+        >
+          {clearError}
+        </p>
       )}
     </div>
   );
