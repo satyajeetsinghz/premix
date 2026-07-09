@@ -70,7 +70,7 @@ import PlaylistPage from "@/features/playlists/pages/PlaylistPage";
 
 import AdminPage from "@/features/admin/pages/AdminPage";
 import RouteErrorBoundary from "@/components/shared/RouterErrorBoundary";
-import TestingPage from "@/components/shared/TestingPage";
+// import TestingPage from "@/components/shared/TestingPage";
 
 /**
  * PublicRoute Component
@@ -135,7 +135,7 @@ const router = createBrowserRouter([
       {
         path: "search",
         // TODO: Implement global search functionality
-        element: <TestingPage />,
+        element: "",
       },
 
       {
