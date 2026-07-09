@@ -25,64 +25,40 @@
  *   (renders as real SF Pro on Apple platforms, closest system match elsewhere)
  * ------------------------------------------------------------------
  *
- * BREAKOUT ARCHITECTURE (this pass — matches HomePage / FeaturedBanner exactly)
+ * BREAKOUT ARCHITECTURE (matches HomePage / FeaturedBanner exactly)
  * ------------------------------------------------------------------
- * Previously, "Playlists" and "Listening To" tried to reach full width by
- * setting the OUTER section to `w-full` while relying on an inner flex
- * spacer (`flex: "0 0 0px"`) to fake the left gutter. That never actually
- * escaped the page's `paddingLeft: var(--sidebar-inset)` — a %-based
- * width cannot break out of an ancestor's padding, only a negative
- * margin can — so the scrollable track's real scroll width never grew:
- * cards could not scroll into the space physically reclaimed from the
- * sidebar. The flex-basis bug (`flex: "0 0 0px"` winning over `width`)
- * was a symptom of a spacer doing the alignment job a real breakout
- * should have done in the first place.
+ * "Playlists" and "Listening To" reach full width via a real breakout:
+ * the OUTSIDE root cancels the page's `--sidebar-inset` with a negative
+ * margin + compensating width (`BREAKOUT_STYLE`), then the header/track
+ * re-add that same offset via `LEFT_GUTTER` padding on themselves — the
+ * same two-step cancel/re-add FeaturedBanner does with `trackGutter`.
+ * Net effect: the scrollable track's box physically spans the true
+ * viewport width (reclaiming the sidebar's width for scrolling), while
+ * the title and first card still visually start at the same x-position
+ * as the hero above them. Loading skeletons and the empty state are
+ * rendered by ScrollSection itself (`state="loading" | "empty" | "content"`)
+ * so there's exactly one place that owns the gutter math.
+ * ------------------------------------------------------------------
  *
- * This pass ports the exact HomePage/FeaturedBanner pattern one-for-one:
+ * MENU PORTAL FIX (this pass)
+ * ------------------------------------------------------------------
+ * ProfileActions' "More options" dropdown previously lived nested with
+ * `position: absolute` inside ProfileHero's `overflow-hidden` box, which
+ * also carries its own blurred/scaled background image (`filter: blur(34px)
+ * ... transform: scale(1.18)`) and stacking context. A `backdrop-filter`
+ * nested inside an ancestor with `overflow-hidden` + its own filter/transform
+ * gets clipped to that ancestor's box and composites against the
+ * *already-blurred* hero art instead of the true page background — which
+ * is what made the menu look washed out / blended into the hero.
  *
- *   1. HomePage cancels the inset on the OUTSIDE, per-row, as a plain
- *      sibling: `<section style={{ marginLeft: calc(-1 * sidebar-inset),
- *      width: calc(100% + sidebar-inset) }}><FeaturedBanner /></section>`.
- *      ScrollSection now owns that same cancellation on its own root — a
- *      consumer just renders `<ScrollSection>` as a normal sibling and it
- *      breaks out to the true viewport edge on its own, exactly the way
- *      FeaturedBanner does inside its wrapping `<section>`.
- *
- *   2. FeaturedBanner re-adds the offset ONLY on the scrollable track's
- *      `paddingLeft: calc(var(--sidebar-inset) + GUTTER)`, so the first
- *      card lands back at the same x-position the page header sits at,
- *      even though the track's box now physically spans the true
- *      viewport width. ScrollSection's track does the identical thing
- *      via `paddingLeft: LEFT_GUTTER` — no spacer div, no flex-basis
- *      footgun, just padding on the actual scrolling element, the same
- *      way FeaturedBanner does it (and the same way FeaturedBanner uses
- *      a small trailing spacer div for right-edge breathing room instead
- *      of `paddingRight`).
- *
- *   3. The section header (title + "View All") lives INSIDE the same
- *      breakout root now (previously it sat in the normal, non-breakout
- *      flow, which is what happened to keep it aligned by accident).
- *      It uses the same `LEFT_GUTTER` offset as the track, so title and
- *      first card always share one x-position, on every screen size,
- *      exactly like HomePage's greeting header and FeaturedBanner's
- *      first card share `GUTTER_STATIC_CLASS`.
- *
- *   4. Loading skeletons and the empty state are now rendered by
- *      ScrollSection itself (`state="loading" | "empty" | "content"`)
- *      instead of being hand-duplicated three times in ProfilePage with
- *      their own ad-hoc padding. One code path owns the gutter math, so
- *      it cannot drift out of sync between states.
- *
- * Net effect: "Playlists" and "Listening To" now scroll edge-to-edge of
- * the true viewport — reclaiming the sidebar's width for the scrollable
- * area — while every card row still visually starts directly under its
- * own title, which itself lines up with the hero above it.
- *
- * The hero is intentionally left alone: it still lives inside
- * `max-w-7xl mx-auto`, same as before — only the two scrollable sections
- * below it are full-bleed, the same split HomePage draws between its
- * (constrained, if any) header and its full-width FeaturedBanner /
- * RecentlyPlayed / DynamicSection rows.
+ * Fixed by porting the exact pattern PlaylistPage's SongContextMenu /
+ * PlaylistOptionsMenu already use: `createPortal(..., document.body)` +
+ * `position: fixed`, with position computed from the trigger button's
+ * `getBoundingClientRect()` in `useLayoutEffect`. This removes the menu
+ * from ProfileHero's clipping/filter stacking context entirely, so its
+ * `backdrop-filter` now blurs the real page background instead of the
+ * hero's pre-blurred art — matching Sidebar's dropdown visually AND
+ * structurally now, not just visually.
  * ------------------------------------------------------------------
  *
  * Responsibilities:
@@ -108,7 +84,8 @@
  * @module features/profile/pages
  */
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate } from "react-router-dom";
 import { useProfile } from "./hooks/useProfile";
 import { useAuth } from "@/features/auth/hooks/useAuth";
@@ -158,6 +135,11 @@ const BREAKOUT_STYLE: React.CSSProperties = {
   marginLeft: "calc(-1 * var(--sidebar-inset))",
   width: "calc(100% + var(--sidebar-inset))",
 };
+
+// Fixed chrome that can overlap a portaled floating menu, used to keep
+// it inside the usable viewport (mirrors PlaylistPage's constants).
+const PLAYER_BAR_H = 90;
+const MOBILE_NAV_H = 64;
 
 /**
  * Extracts initials from a name for avatar fallback.
@@ -646,12 +628,21 @@ const SidebarStyleMenuItem = ({
 
 /**
  * ProfileActions — frosted-glass capsule holding two icon-only buttons
- * (Share, More). The "More" button opens a dropdown that is now a
+ * (Share, More). The "More" button opens a dropdown that is a
  * byte-for-byte visual match of Sidebar's ProfileMenu dropdown — same
  * background/blur/border/shadow/radius, same row height, type scale,
- * icon-on-the-right layout, and 0.5px divider — so a person moving
- * between the sidebar and this page sees one consistent menu language,
- * not two similar-but-different ones.
+ * icon-on-the-right layout, and 0.5px divider.
+ *
+ * MENU PORTAL FIX: the dropdown now portals to `document.body` with
+ * `position: fixed`, positioned via `getBoundingClientRect()` on the
+ * trigger button — identical to PlaylistPage's SongContextMenu /
+ * PlaylistOptionsMenu. Previously it was `position: absolute` nested
+ * inside ProfileHero's `overflow-hidden` box (which also carries its own
+ * blurred/scaled background image), so its `backdrop-filter` composited
+ * against the hero's already-blurred art instead of the true page
+ * background — that's what caused the menu to visually blend/wash out.
+ * Portaling removes it from that ancestor's clipping/filter stacking
+ * context entirely.
  */
 const ProfileActions = ({
   onEdit,
@@ -664,6 +655,9 @@ const ProfileActions = ({
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
@@ -674,12 +668,35 @@ const ProfileActions = ({
     }
   }, [onShare]);
 
+  // Position computed from the trigger's real screen rect, recalculated
+  // every time the menu opens — same approach as SongContextMenu /
+  // PlaylistOptionsMenu in PlaylistPage, clamped to stay above fixed
+  // bottom chrome (player bar / mobile nav).
+  useLayoutEffect(() => {
+    if (!menuOpen || !triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const menuHeight = menuRef.current?.offsetHeight ?? 3 * SIDEBAR_MENU.rowHeight;
+    const isMobile = window.innerWidth < 640;
+    const bottomChrome = isMobile ? MOBILE_NAV_H + PLAYER_BAR_H : PLAYER_BAR_H;
+    const usableViewH = window.innerHeight - bottomChrome;
+
+    const top = Math.min(
+      rect.bottom + window.scrollY + 6,
+      window.scrollY + usableViewH - menuHeight - 8,
+    );
+    const right = window.innerWidth - rect.right + window.scrollX;
+
+    setPos({ top, right });
+  }, [menuOpen]);
+
   useEffect(() => {
     if (!menuOpen) return;
     const handleClick = (e: MouseEvent) => {
       if (
         containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
+        !containerRef.current.contains(e.target as Node) &&
+        menuRef.current &&
+        !menuRef.current.contains(e.target as Node)
       ) {
         closeMenu();
       }
@@ -687,9 +704,10 @@ const ProfileActions = ({
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeMenu();
     };
-    document.addEventListener("mousedown", handleClick);
+    const tid = setTimeout(() => document.addEventListener("mousedown", handleClick), 50);
     document.addEventListener("keydown", handleKey);
     return () => {
+      clearTimeout(tid);
       document.removeEventListener("mousedown", handleClick);
       document.removeEventListener("keydown", handleKey);
     };
@@ -726,8 +744,9 @@ const ProfileActions = ({
         <IosShareRounded sx={{ fontSize: 20 }} />
       </button>
 
-      {/* More — opens the Sidebar-matched dropdown below */}
+      {/* More — opens the Sidebar-matched dropdown, now portaled */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setMenuOpen((v) => !v)}
         aria-haspopup="menu"
@@ -740,73 +759,79 @@ const ProfileActions = ({
       </button>
 
       {/*
-        Dropdown panel — conditionally MOUNTED (not just opacity-toggled)
-        so `slideUp` replays from its start state every time the menu
-        opens, matching Sidebar's behavior exactly. Anchored below/right
-        of the trigger (`top-full right-0`) since this trigger sits near
-        the top of the page, unlike Sidebar's own menu which opens
-        upward from the bottom of the sidebar — the anchor direction
-        differs by necessity, but the panel itself is identical.
+        Dropdown panel — portaled to document.body + position: fixed, so
+        it escapes ProfileHero's overflow-hidden and pre-blurred
+        background entirely. backdrop-filter now blurs the real page
+        content behind it instead of the hero's own blurred art.
       */}
-      {menuOpen && (
-        <div
-          role="menu"
-          className="absolute right-0 top-full mt-2 overflow-hidden z-50"
-          style={{
-            width: SIDEBAR_MENU.panelWidth,
-            background: SIDEBAR_MENU.panelBg,
-            backdropFilter: SIDEBAR_MENU.panelBackdropFilter,
-            WebkitBackdropFilter: SIDEBAR_MENU.panelBackdropFilter,
-            border: SIDEBAR_MENU.panelBorder,
-            borderRadius: SIDEBAR_MENU.panelRadius,
-            boxShadow: SIDEBAR_MENU.panelShadow,
-            animation: "slideUp .18s cubic-bezier(.2,.8,.2,1)",
-          }}
-        >
-          {/*
-            `slideUp` is assumed to already exist as a global keyframe
-            (Sidebar's dropdown relies on it without defining it inline).
-            Defined here too, scoped to this instance via a plain <style>
-            tag, so this component still animates correctly even if it's
-            ever used on a page before that global stylesheet loads. Safe
-            to delete once the global definition is confirmed to always
-            be present by the time this mounts.
-          */}
-          <style>{`
-            @keyframes slideUp {
-              from { opacity: 0; transform: translateY(8px); }
-              to { opacity: 1; transform: translateY(0); }
-            }
-          `}</style>
+      {menuOpen &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            aria-label="Profile options"
+            style={{
+              position: "fixed",
+              top: pos?.top ?? 0,
+              right: pos?.right ?? 16,
+              width: SIDEBAR_MENU.panelWidth,
+              zIndex: 999999,
+              background: SIDEBAR_MENU.panelBg,
+              backdropFilter: SIDEBAR_MENU.panelBackdropFilter,
+              WebkitBackdropFilter: SIDEBAR_MENU.panelBackdropFilter,
+              border: SIDEBAR_MENU.panelBorder,
+              borderRadius: SIDEBAR_MENU.panelRadius,
+              boxShadow: SIDEBAR_MENU.panelShadow,
+              overflow: "hidden",
+              animation: "slideUp .18s cubic-bezier(.2,.8,.2,1)",
+              visibility: pos ? "visible" : "hidden",
+            }}
+          >
+            {/*
+              `slideUp` is assumed to already exist as a global keyframe
+              (Sidebar's dropdown relies on it without defining it inline).
+              Defined here too, scoped to this instance via a plain <style>
+              tag, so this component still animates correctly even if it's
+              ever used on a page before that global stylesheet loads. Safe
+              to delete once the global definition is confirmed to always
+              be present by the time this mounts.
+            */}
+            <style>{`
+              @keyframes slideUp {
+                from { opacity: 0; transform: translateY(8px); }
+                to { opacity: 1; transform: translateY(0); }
+              }
+            `}</style>
 
-          <SidebarStyleMenuItem
-            label="Edit Profile"
-            icon={EditRounded}
-            onClick={() => {
-              closeMenu();
-              onEdit();
-            }}
-          />
-          <SidebarStyleMenuItem
-            label="My Library"
-            icon={LibraryMusicIcon}
-            onClick={() => {
-              closeMenu();
-              onOpenLibrary();
-            }}
-            withTopDivider
-          />
-          <SidebarStyleMenuItem
-            label="Share Profile"
-            icon={IosShareRounded}
-            onClick={() => {
-              closeMenu();
-              handleShare();
-            }}
-            withTopDivider
-          />
-        </div>
-      )}
+            <SidebarStyleMenuItem
+              label="Edit Profile"
+              icon={EditRounded}
+              onClick={() => {
+                closeMenu();
+                onEdit();
+              }}
+            />
+            <SidebarStyleMenuItem
+              label="My Library"
+              icon={LibraryMusicIcon}
+              onClick={() => {
+                closeMenu();
+                onOpenLibrary();
+              }}
+              withTopDivider
+            />
+            <SidebarStyleMenuItem
+              label="Share Profile"
+              icon={IosShareRounded}
+              onClick={() => {
+                closeMenu();
+                handleShare();
+              }}
+              withTopDivider
+            />
+          </div>,
+          document.body,
+        )}
     </div>
   );
 };
@@ -840,7 +865,7 @@ const ProfileHero = ({
 }) => (
   <div
     className="relative w-full overflow-hidden xl:rounded-2xl"
-    style={{ height: "min(320px, 42vw)", minHeight: 260 }}
+    style={{ height: "min(320px, 42vw)", minHeight: 320 }}
   >
     {/* Background */}
     <div className="absolute inset-0">

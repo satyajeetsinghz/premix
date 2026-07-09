@@ -149,7 +149,7 @@ const LoginPage = (): React.ReactElement => {
                 className="flex items-center justify-center w-11 h-11 rounded-full mb-3.5"
                 style={{ backgroundColor: "transparent" }}
               >
-                <ErrorRounded sx={{fontSize: 40}}/>
+                <ErrorRounded sx={{ fontSize: 36 }} />
               </div>
 
               <p
@@ -204,11 +204,11 @@ const LoginPage = (): React.ReactElement => {
             <img
               src="logos/premix_rounded_logo.png"
               alt="Premix"
-              className="mb-8 size-16 sm:size-20 object-cover"
+              className="mb-6 size-16 sm:size-20 object-cover"
             />
 
-            <h1 className="text-center text-[28px] leading-tight font-normal text-[#f5f5f7] mb-8">
-              Sign in to your account
+            <h1 className="text-center text-[28px] leading-tight font-normal text-[#f5f5f7] mb-6">
+              Sign in to your Premix account
             </h1>
           </div>
 

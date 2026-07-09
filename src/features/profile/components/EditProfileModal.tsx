@@ -40,10 +40,13 @@
  * - Body scroll locked while modal open
  * - Smooth entrance animation (sheetUp)
  *
- * Performance:
- * - Object URL cleanup on unmount prevents memory leaks
- * - useCallback for event handlers (stable references)
- * - File input ref for programmatic reset
+ * DESIGN (this pass) — Apple Music Web dark/glassy, matching the same
+ * frosted-glass recipe used across ProfilePage/PlaylistPage/SIDEBAR_MENU:
+ * background rgba(31,31,31,.55-.68) + backdrop-filter blur/saturate/
+ * brightness, 1px hairline borders (rgba(255,255,255,.06-.12)), text
+ * #f5f5f7 / rgba(235,235,245,.6), accent #fc3c44 → hover #ff6961. All
+ * state/handlers/effects are unchanged from the original — only markup
+ * and styling were replaced.
  *
  * @module features/profile/components
  */
@@ -51,10 +54,15 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { uploadProfileImage } from "../services/cloudinaryService";
-import { CameraAltRounded } from "@mui/icons-material";
+import { CameraAltRounded, CloseRounded } from "@mui/icons-material";
 
-// Brand primary color constant (matches HANDOFF_CORE.md)
-const P = "#fa243c";
+// Brand constants — matches P/PH used across ProfilePage & PlaylistPage
+const P = "#fc3c44";
+const PH = "#ff6961";
+const TXT_PRIMARY = "#f5f5f7";
+const TXT_SECONDARY = "rgba(235,235,245,0.60)";
+const TXT_TERTIARY = "rgba(235,235,245,0.40)";
+const HAIRLINE = "rgba(255,255,255,0.09)";
 
 /**
  * Props for the EditProfileModal component.
@@ -233,7 +241,7 @@ const EditProfileModal = ({ profile, onClose, onSave }: Props) => {
 
   return createPortal(
     <>
-      {/* Animation styles */}
+      {/* Animation + input styles */}
       <style>{`
         @keyframes sheetUp {
           from { opacity: 0; transform: translateY(20px) scale(0.98); }
@@ -241,37 +249,43 @@ const EditProfileModal = ({ profile, onClose, onSave }: Props) => {
         }
         .ep-input {
           width: 100%;
-          background: #fff;
-          border: 1px solid #d1d1d6;
+          background: rgba(255,255,255,0.06);
+          border: 1px solid ${HAIRLINE};
           border-radius: 10px;
           padding: 10px 14px;
           font-size: 14px;
-          color: #1c1c1e;
+          color: ${TXT_PRIMARY};
           outline: none;
-          transition: border-color 0.15s;
+          transition: border-color 0.15s, background 0.15s;
         }
-        .ep-input:focus { border-color: ${P}; }
-        .ep-input::placeholder { color: #aeaeb2; }
+        .ep-input:focus { border-color: ${P}; background: rgba(255,255,255,0.08); }
+        .ep-input::placeholder { color: ${TXT_TERTIARY}; }
+        .ep-input:disabled { opacity: 0.5; }
+        .ep-input[readonly] { color: ${TXT_TERTIARY}; cursor: default; }
       `}</style>
 
-      {/* Backdrop overlay with blur */}
+      {/* Backdrop overlay */}
       <div
         ref={backdropRef}
         onClick={handleBackdropClick}
-        className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
-        style={{
-          background: "rgba(0,0,0,0.45)",
-          backdropFilter: "blur(8px)",
-          WebkitBackdropFilter: "blur(8px)",
-        }}
+        className="fixed inset-0 z-[9999] flex items-center justify-center p-8 sm:p-4"
+        style={{ background: "rgba(0,0,0,0.55)" }}
       >
-        {/* Modal container */}
+        {/* Modal container — frosted glass, same recipe as SIDEBAR_MENU/PlaylistPage dialogs */}
         <div
           className="relative w-full max-w-[420px] rounded-[20px] overflow-hidden mx-auto"
           style={{
-            background: "#f2f2f7",
-            boxShadow:
-              "0 24px 64px rgba(0,0,0,0.28), 0 4px 16px rgba(0,0,0,0.12)",
+            background: "rgba(31, 31, 31, 0.68)",
+            backdropFilter: "blur(38px) saturate(190%) brightness(1.05) contrast(1.05)",
+            WebkitBackdropFilter: "blur(38px) saturate(190%) brightness(1.05) contrast(1.05)",
+            border: "1px solid rgba(255,255,255,0.10)",
+            boxShadow: `
+              0 24px 60px rgba(0,0,0,.48),
+              0 10px 24px rgba(0,0,0,.28),
+              0 2px 6px rgba(0,0,0,.18),
+              inset 0 1px 0 rgba(255,255,255,.10),
+              inset 0 -1px 0 rgba(0,0,0,.25)
+            `,
             animation: "sheetUp 0.28s cubic-bezier(0.34,1.3,0.64,1)",
             maxHeight: "calc(100vh - 32px)",
             overflowY: "auto",
@@ -279,28 +293,42 @@ const EditProfileModal = ({ profile, onClose, onSave }: Props) => {
         >
           {/* Drag indicator (mobile only) */}
           <div className="flex justify-center pt-2.5 pb-0 sm:hidden">
-            <div className="w-10 h-1 rounded-full bg-black/15" />
+            <div className="w-10 h-1 rounded-full" style={{ background: "rgba(255,255,255,0.18)" }} />
           </div>
 
-          {/* Modal header */}
-          <div className="px-5 pt-5 pb-0">
+          {/* Header */}
+          <div className="px-5 pt-5 pb-0 flex items-center justify-between">
             <h2
-              className="font-semibold text-[20px] text-[#1c1c1e]"
-              style={{ letterSpacing: "-0.4px" }}
+              className="font-semibold text-[20px]"
+              style={{ color: TXT_PRIMARY, letterSpacing: "-0.4px" }}
             >
-              Edit Profile
+              Edit profile
             </h2>
+            <button
+              onClick={onClose}
+              disabled={loading}
+              aria-label="Close"
+              className="flex items-center justify-center w-7 h-7 rounded-full transition-colors disabled:opacity-40"
+              style={{ background: "rgba(255,255,255,0.08)", color: TXT_SECONDARY }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.14)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
+            >
+              <CloseRounded sx={{ fontSize: 16 }} />
+            </button>
           </div>
 
-          {/* Form content - two column layout on desktop, stacked on mobile */}
-          <div className="px-5 pt-4 pb-1 flex flex-col sm:flex-row items-start gap-5">
-            {/* Avatar section */}
+          {/* Form content */}
+          <div className="px-5 pt-5 pb-1 flex flex-col sm:flex-row items-start gap-5">
+            {/* Avatar */}
             <div className="relative self-center sm:self-start flex-shrink-0">
               <div
                 className="w-20 h-20 sm:w-[88px] sm:h-[88px] rounded-full overflow-hidden flex items-center justify-center"
                 style={{
-                  background: imagePreview ? "transparent" : "#c7c7cc",
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+                  background: imagePreview
+                    ? "transparent"
+                    : "linear-gradient(135deg, #3a3a3c, #1c1c1e)",
+                  border: "1px solid rgba(255,255,255,0.14)",
+                  boxShadow: "0 6px 20px rgba(0,0,0,0.4)",
                 }}
               >
                 {imagePreview ? (
@@ -311,25 +339,26 @@ const EditProfileModal = ({ profile, onClose, onSave }: Props) => {
                     draggable={false}
                   />
                 ) : (
-                  <span className="font-semibold select-none text-2xl text-[#3a3a3c]">
+                  <span
+                    className="font-semibold select-none text-2xl"
+                    style={{ color: TXT_PRIMARY }}
+                  >
                     {initials}
                   </span>
                 )}
               </div>
 
-              {/* Camera button for image upload */}
               <label
-                className="absolute bottom-0 left-1/2 -translate-x-1/2 w-7 h-7 rounded-full flex items-center justify-center cursor-pointer"
+                className="absolute bottom-0 left-1/2 -translate-x-1/2 w-7 h-7 rounded-full flex items-center justify-center cursor-pointer transition-colors"
                 style={{
-                  background: "rgba(60,60,67,0.55)",
-                  backdropFilter: "blur(4px)",
+                  background: P,
+                  border: "2px solid rgba(31,31,31,0.9)",
                 }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = PH)}
+                onMouseLeave={(e) => (e.currentTarget.style.background = P)}
                 aria-label="Change photo"
               >
-                <CameraAltRounded
-                  sx={{ fontSize: 15 }}
-                  style={{ color: "#fff" }}
-                />
+                <CameraAltRounded sx={{ fontSize: 14 }} style={{ color: "#fff" }} />
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -339,18 +368,26 @@ const EditProfileModal = ({ profile, onClose, onSave }: Props) => {
                 />
               </label>
 
-              {/* Upload overlay spinner */}
               {uploading && (
-                <div className="absolute inset-0 rounded-full flex items-center justify-center bg-black/30">
-                  <span className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                <div
+                  className="absolute inset-0 rounded-full flex items-center justify-center"
+                  style={{ background: "rgba(0,0,0,0.45)" }}
+                >
+                  <span
+                    className="w-5 h-5 rounded-full border-2 animate-spin"
+                    style={{ borderColor: "rgba(255,255,255,0.25)", borderTopColor: "#fff" }}
+                  />
                 </div>
               )}
             </div>
 
-            {/* Form fields section */}
+            {/* Fields */}
             <div className="flex-1 w-full space-y-3">
               <div>
-                <p className="mb-1.5 text-[12px] font-semibold text-[#3a3a3c] uppercase tracking-wide">
+                <p
+                  className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide"
+                  style={{ color: TXT_SECONDARY }}
+                >
                   Name
                 </p>
                 <input
@@ -364,16 +401,18 @@ const EditProfileModal = ({ profile, onClose, onSave }: Props) => {
                   placeholder="Your name"
                   maxLength={50}
                   disabled={loading}
-                  className="ep-input disabled:opacity-50"
+                  className="ep-input"
                   style={{ caretColor: P }}
                   autoFocus
                 />
               </div>
 
-              {/* Username field (read-only, derived from email) */}
               {profile?.email && (
                 <div>
-                  <p className="mb-1.5 text-[12px] font-semibold text-[#3a3a3c] uppercase tracking-wide">
+                  <p
+                    className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide"
+                    style={{ color: TXT_SECONDARY }}
+                  >
                     Username
                   </p>
                   <input
@@ -385,7 +424,6 @@ const EditProfileModal = ({ profile, onClose, onSave }: Props) => {
                     }
                     readOnly
                     className="ep-input"
-                    style={{ color: "#8e8e93", cursor: "default" }}
                   />
                 </div>
               )}
@@ -393,33 +431,40 @@ const EditProfileModal = ({ profile, onClose, onSave }: Props) => {
           </div>
 
           {/* Helper text */}
-          <p className="px-5 pt-2 text-[12px] text-[#8e8e93] leading-[1.5]">
-            Your photo, name and username will be visible to others.
+          <p
+            className="px-5 pt-3 text-[12px] leading-[1.5]"
+            style={{ color: TXT_TERTIARY }}
+          >
+            Your photo, name, and username will be visible to others.
           </p>
 
           {/* Error message */}
           {error && (
-            <p
-              className="px-5 pt-2 text-[12px] text-center"
-              style={{ color: P }}
-            >
+            <p className="px-5 pt-2 text-[12px] text-center" style={{ color: P }}>
               {error}
             </p>
           )}
 
-          <div className="mx-5 my-4 h-px bg-[#c6c6c8]" />
+          <div className="mx-5 my-4" style={{ height: 0.5, background: HAIRLINE }} />
 
-          {/* Action buttons */}
+          {/* Actions */}
           <div className="px-5 pb-6 flex gap-2">
             <button
               onClick={handleSubmit}
               disabled={!isValid || loading}
-              className="flex-1 py-2 rounded-full text-[14px] font-semibold flex items-center justify-center gap-2 transition-opacity disabled:opacity-40 text-white"
-              style={{ background: P }}
+              className="flex-1 py-2.5 rounded-full text-[14px] font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-40"
+              style={{ background: P, color: "#ffffff" }}
+              onMouseEnter={(e) => {
+                if (!loading && isValid) e.currentTarget.style.background = PH;
+              }}
+              onMouseLeave={(e) => (e.currentTarget.style.background = P)}
             >
               {loading ? (
                 <>
-                  <span className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                  <span
+                    className="w-4 h-4 rounded-full border-2 animate-spin"
+                    style={{ borderColor: "rgba(255,255,255,0.4)", borderTopColor: "#fff" }}
+                  />
                   Saving
                 </>
               ) : (
@@ -430,8 +475,12 @@ const EditProfileModal = ({ profile, onClose, onSave }: Props) => {
             <button
               onClick={onClose}
               disabled={loading}
-              className="flex-1 py-2 rounded-full text-[14px] font-semibold transition-opacity disabled:opacity-40"
-              style={{ background: "#e5e5ea", color: "#3a3a3c" }}
+              className="flex-1 py-2.5 rounded-full text-[14px] font-semibold transition-colors disabled:opacity-40"
+              style={{ background: "rgba(255,255,255,0.08)", color: TXT_PRIMARY }}
+              onMouseEnter={(e) => {
+                if (!loading) e.currentTarget.style.background = "rgba(255,255,255,0.14)";
+              }}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.08)")}
             >
               Cancel
             </button>

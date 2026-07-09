@@ -60,7 +60,7 @@ import { createPortal } from "react-dom";
 const P = "#fa243c";
 const PH = "#e01e33";
 const GR = "linear-gradient(135deg, #fa243c 0%, #bf5af2 100%)";
-const COVER_H = 270;
+// const COVER_H = 270;
 
 // ── Dark-theme surface tokens ─────────────────────────────────
 // const BG = "#1f1f1f";
@@ -596,10 +596,8 @@ const LikedSongs = () => {
           <div className="pt-10 pb-10">
             <div className="flex flex-col sm:flex-row gap-8 items-start">
               <div
-                className="shrink-0 mx-auto sm:mx-0 rounded-2xl overflow-hidden"
+                className="shrink-0 w-[200px] h-[200px]  sm:min-w-[270px] sm:min-h-[270px] mx-auto sm:mx-0 rounded-2xl overflow-hidden"
                 style={{
-                  width: COVER_H,
-                  height: COVER_H,
                   background: GR,
                 }}
               >
@@ -622,7 +620,7 @@ const LikedSongs = () => {
                   </div>
                 }
                 actions={
-                  <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+                  <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto mt-4 sm:mt-0">
                     <div className="flex w-full gap-2 sm:w-auto">
                       <PillBtn
                         onClick={handlePlayAll}
@@ -766,12 +764,7 @@ const LikedSongs = () => {
     transition-all
     duration-200
   "
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.color = "#fa243c")
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.color = "white")
-                      }
+                      style={{color: "#fa243c"}}
                     >
                       <MoreHorizIcon sx={{ fontSize: 22 }} />
                     </button>
@@ -838,14 +831,8 @@ const LikedSongs = () => {
     duration-200
     hover:text-[#fa243c]
   "
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.color = "#fa243c")
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.color = "white")
-                      }
                       style={{
-                        // color: menuOpen ? "#fa243c" : TEXT_SEC,
+                        color: "#fa243c",
                         background: "transparent",
                         opacity: menuOpen ? 1 : undefined,
                       }}

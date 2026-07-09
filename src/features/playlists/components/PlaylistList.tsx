@@ -321,12 +321,7 @@ const PlaylistList = () => {
                       aria-label="Playlist options"
                       className="flex-shrink-0 w-6 h-6 flex items-center justify-center transition-colors"
                     >
-                      <MoreHorizIcon onMouseEnter={(e) =>
-                        (e.currentTarget.style.color = "#fa243c")
-                      }
-                        onMouseLeave={(e) =>
-                          (e.currentTarget.style.color = "transparent")
-                        } style={{ fontSize: 16 }} />
+                      <MoreHorizIcon style={{ fontSize: 16, color: "#fa243c" }} />
                     </button>
                   )}
 

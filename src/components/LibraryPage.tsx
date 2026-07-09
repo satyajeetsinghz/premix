@@ -226,7 +226,7 @@ const LibraryPage = () => {
                 className="
     shrink-0
     w-full
-    max-w-[220px]
+    max-w-[200px]
     sm:max-w-[240px]
     md:max-w-[270px]
     lg:w-[270px]
@@ -239,10 +239,11 @@ const LibraryPage = () => {
           lg:mx-0
   aspect-square
   w-full
+  rounded-2xl
 
         "
                   style={{
-                    borderRadius: 12,
+                    // borderRadius: 12,
                     boxShadow: "0 12px 40px rgba(0,0,0,.35)",
                     background: GRADIENT,
                   }}

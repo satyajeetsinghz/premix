@@ -21,6 +21,21 @@
  * - Removed a no-op `window.scrollY - window.scrollY` cancellation in the menu's
  *   "open above" position calculation.
  *
+ * Latest pass — Playlist options menu now matches SongContextMenu's behavior:
+ * - The header's "More options" menu (Public/Private, Delete Playlist) was rendered
+ *   with `position: absolute` inside the sticky header, which sits inside an
+ *   `overflow`/backdrop-filter-bearing ancestor. That clipped/altered how its own
+ *   `backdrop-filter` composited, making the glass panel read far more transparent
+ *   than the (visually identical) SongContextMenu, which portals to `document.body`
+ *   with `position: fixed` and therefore blurs the true page background correctly.
+ * - Extracted a new `PlaylistOptionsMenu` component that mirrors SongContextMenu:
+ *   portals to document.body, computes position via getBoundingClientRect on the
+ *   trigger button, and manages its own outside-click/Escape dismissal — instead of
+ *   being nested/absolute inside the header and relying on the page's shared
+ *   useClickOutside/menuRef wiring.
+ * - The trigger button no longer needs a wrapping `relative` container for the menu;
+ *   position is computed from the button's own anchor rect, same as song rows.
+ *
  * All functionality, hooks, and architecture otherwise unchanged from original.
  *
  * @module features/playlists/pages
@@ -46,12 +61,13 @@ import ChevronLeftRounded from "@mui/icons-material/ChevronLeftRounded";
 import AnimatedSpinner from "@/components/ui/LoadingSpinner/AnimatedSpinner";
 import { usePlayer } from "@/features/player/hooks/usePlayer";
 import { useAuth } from "@/features/auth/hooks/useAuth";
-import { useClickOutside } from "@/features/playlists/hooks/useClickOutside";
+// import { useClickOutside } from "@/features/playlists/hooks/useClickOutside";
 import { useLikedSongs } from "@/features/likes/hooks/useLikedSongs";
 import { toggleLikeTransaction } from "@/features/likes/services/likeService";
 import {
   AlbumRounded,
   DeleteOutlineRounded,
+  DeleteRounded,
   IosShareRounded,
   LockOpenRounded,
   LockRounded,
@@ -71,19 +87,12 @@ const GR = "linear-gradient(135deg, #fa243c 0%, #bf5af2 100%)";
 const COVER_H = 270;
 
 // ── Dark-theme surface tokens ─────────────────────────────────
-// const BG = "#1f1f1f";
 const SURFACE = "#1f1f1f";
-// const SURFACE_ALT = "rgba(255,255,255,0.025)";
 const HOVER_ROW = "rgba(255,255,255,0.08)";
 const BORDER = "rgba(255,255,255,0.07)";
 const TEXT_PRI = "#ffffffeb";
 const TEXT_SEC = "rgba(235,235,245,0.6)";
 const TEXT_TER = "rgba(235,235,245,0.4)";
-
-// Menu surface — slightly lighter than page for contrast
-// const MENU_BG = "rgba(44,44,46,0.98)";
-// const MENU_BORDER = "rgba(255,255,255,0.10)";
-// const MENU_SEP = "rgba(255,255,255,0.08)";
 
 const TABLE_COLS =
   "minmax(440px,4fr) minmax(240px,2fr) minmax(240px,2fr) 72px 40px";
@@ -166,24 +175,6 @@ const SongContextMenu = ({
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top?: number; bottom?: number; right: number } | null>(null);
 
-  // Calculate position after paint so we know menu dimensions
-  useLayoutEffect(() => {
-    const rect = menu.anchorEl.getBoundingClientRect();
-    const menuHeight = menuRef.current?.offsetHeight ?? 260;
-    const viewH = window.innerHeight;
-    const spaceBelow = viewH - rect.bottom;
-    const spaceAbove = rect.top;
-
-    const right = window.innerWidth - rect.right + window.scrollX;
-
-    if (spaceBelow >= menuHeight + 8 || spaceBelow >= spaceAbove) {
-      setPos({ top: rect.bottom + window.scrollY + 6, right });
-    } else {
-      // Distance from the viewport bottom up to the anchor's top edge, plus a small gap.
-      setPos({ bottom: viewH - rect.top + 6, right });
-    }
-  }, [menu.anchorEl]);
-
   useLayoutEffect(() => {
     const rect = menu.anchorEl.getBoundingClientRect();
     const menuHeight = menuRef.current?.offsetHeight ?? 260;
@@ -230,7 +221,6 @@ const SongContextMenu = ({
         onClose();
       }
     };
-    // Slight delay so the triggering click doesn't immediately close
     const tid = setTimeout(() => document.addEventListener("mousedown", handler), 50);
     return () => {
       clearTimeout(tid);
@@ -243,23 +233,13 @@ const SongContextMenu = ({
     label: string;
     onClick: () => void;
     danger?: boolean;
-    separator?: boolean; // separator ABOVE this item
+    separator?: boolean;
   }> = [
       {
         icon: isLiked ? (
-          <StarRounded
-            sx={{
-              fontSize: 16,
-              color: "#fa233b",
-            }}
-          />
+          <StarRounded sx={{ fontSize: 16, color: "#fa233b" }} />
         ) : (
-          <StarBorderRounded
-            sx={{
-              fontSize: 16,
-              color: "#f5f5f7",
-            }}
-          />
+          <StarBorderRounded sx={{ fontSize: 16, color: "#f5f5f7" }} />
         ),
         label: isLiked ? "Favourited" : "Favourite",
         danger: isLiked,
@@ -303,18 +283,13 @@ const SongContextMenu = ({
         ...(pos?.bottom !== undefined ? { bottom: pos.bottom } : {}),
         right: pos?.right ?? 16,
         width: 200,
-        zIndex: 999999, // above PlayerBar / MobileNav, whatever they use
+        zIndex: 999999,
         background: "rgba(31,31,31,.68)",
-
         backdropFilter: "blur(38px) saturate(190%) brightness(1.05) contrast(1.05)",
         WebkitBackdropFilter: "blur(38px) saturate(190%) brightness(1.05) contrast(1.05)",
-
         border: "1px solid rgba(255,255,255,.12)",
-
         borderRadius: 10,
-
         overflow: "hidden",
-
         boxShadow: `
   0 24px 60px rgba(0,0,0,.48),
   0 10px 24px rgba(0,0,0,.28),
@@ -327,12 +302,7 @@ const SongContextMenu = ({
         visibility: pos ? "visible" : "hidden",
       }}
     >
-      {/* Song identity header */}
-      <div
-        style={{
-          padding: "8px 12px",
-        }}
-      >
+      <div style={{ padding: "8px 12px" }}>
         <p
           style={{
             fontSize: 13,
@@ -345,7 +315,6 @@ const SongContextMenu = ({
         >
           {menu.song.title}
         </p>
-
         <p
           style={{
             fontSize: 11,
@@ -360,25 +329,13 @@ const SongContextMenu = ({
         </p>
       </div>
 
-      <div
-        style={{
-          height: 0.5,
-          background: "rgba(255,255,255,.08)",
-        }}
-      />
+      <div style={{ height: 0.5, background: "rgba(255,255,255,.08)" }} />
 
-      {/* Menu items */}
       {menuItems.map((item, i) => (
         <div key={i}>
           {item.separator && (
-            <div
-              style={{
-                height: 0.5,
-                background: "rgba(255,255,255,.08)",
-              }}
-            />
+            <div style={{ height: 0.5, background: "rgba(255,255,255,.08)" }} />
           )}
-
           <button
             role="menuitem"
             disabled={isToggling && item.label.includes("Liked")}
@@ -386,58 +343,31 @@ const SongContextMenu = ({
             style={{
               width: "100%",
               height: 34,
-
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
-
               padding: "0 12px",
-
               background: "transparent",
               border: "none",
               cursor: "pointer",
-
               color: "#F5F5F7",
-
               fontSize: 13,
               fontWeight: 500,
-
               transition: "background .15s ease",
-
-              opacity:
-                isToggling && item.label.includes("Liked")
-                  ? 0.45
-                  : 1,
+              opacity: isToggling && item.label.includes("Liked") ? 0.45 : 1,
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background =
-                "rgba(255,255,255,.06)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background =
-                "transparent";
-            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,.06)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
           >
-            {/* Text */}
-            <span
-              style={{
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {item.label}
             </span>
-
-            {/* Icon */}
             <span
               style={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                color: item.danger
-                  ? "#fa233b"
-                  : "#F5F5F7",
+                color: item.danger ? "#fa233b" : "#F5F5F7",
                 flexShrink: 0,
               }}
             >
@@ -446,6 +376,187 @@ const SongContextMenu = ({
           </button>
         </div>
       ))}
+    </div>,
+    document.body,
+  );
+};
+
+// ── Playlist options menu (header "More options": Public/Private, Delete) ──
+interface PlaylistOptionsMenuProps {
+  anchorEl: HTMLButtonElement;
+  isPublic: boolean;
+  onTogglePublic: () => void;
+  onRequestDelete: () => void;
+  onClose: () => void;
+}
+
+/**
+ * Floating menu for the playlist header's "More options" trigger.
+ *
+ * Mirrors SongContextMenu exactly (same portal target, same fixed positioning
+ * strategy, same glass styling) rather than being nested with
+ * `position: absolute` inside the sticky header. The header sits inside an
+ * ancestor that clips/backdrop-filters its own content (needed for the sticky
+ * blur), which was interfering with this menu's own backdrop-filter and
+ * making it render far more transparent than the Song menu. Portaling to
+ * document.body with position: fixed — exactly like SongContextMenu —
+ * removes it from that ancestor's stacking/clipping context entirely.
+ */
+const PlaylistOptionsMenu = ({
+  anchorEl,
+  isPublic,
+  onTogglePublic,
+  onRequestDelete,
+  onClose,
+}: PlaylistOptionsMenuProps) => {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; right: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const rect = anchorEl.getBoundingClientRect();
+    const menuHeight = menuRef.current?.offsetHeight ?? 160;
+    const viewH = window.innerHeight;
+
+    const isMobile = window.innerWidth < 640;
+    const bottomChrome = isMobile ? MOBILE_NAV_H + PLAYER_BAR_H : PLAYER_BAR_H;
+    const usableViewH = viewH - bottomChrome;
+
+    const spaceBelow = usableViewH - rect.bottom;
+    const spaceAbove = rect.top;
+
+    const right = window.innerWidth - rect.right + window.scrollX;
+
+    if (spaceBelow >= menuHeight + 8 || spaceBelow >= spaceAbove) {
+      const top = Math.min(
+        rect.bottom + window.scrollY + 6,
+        window.scrollY + usableViewH - menuHeight - 8,
+      );
+      setPos({ top, right });
+    } else {
+      setPos({ bottom: viewH - rect.top + 6, right });
+    }
+  }, [anchorEl]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(e.target as Node) &&
+        e.target !== anchorEl &&
+        !anchorEl.contains(e.target as Node)
+      ) {
+        onClose();
+      }
+    };
+    const tid = setTimeout(() => document.addEventListener("mousedown", handler), 50);
+    return () => {
+      clearTimeout(tid);
+      document.removeEventListener("mousedown", handler);
+    };
+  }, [onClose, anchorEl]);
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      role="menu"
+      aria-label="Playlist options"
+      style={{
+        position: "fixed",
+        ...(pos?.top !== undefined ? { top: pos.top } : {}),
+        ...(pos?.bottom !== undefined ? { bottom: pos.bottom } : {}),
+        right: pos?.right ?? 16,
+        width: 200,
+        zIndex: 999999,
+        background: "rgba(31,31,31,.68)",
+        backdropFilter: "blur(38px) saturate(190%) brightness(1.05) contrast(1.05)",
+        WebkitBackdropFilter: "blur(38px) saturate(190%) brightness(1.05) contrast(1.05)",
+        border: "1px solid rgba(255,255,255,.12)",
+        borderRadius: 10,
+        overflow: "hidden",
+        boxShadow: `
+  0 24px 60px rgba(0,0,0,.48),
+  0 10px 24px rgba(0,0,0,.28),
+  0 2px 6px rgba(0,0,0,.18),
+  inset 0 1px 0 rgba(255,255,255,.14),
+  inset 0 -1px 0 rgba(0,0,0,.25),
+  inset 0 0 0 1px rgba(255,255,255,.03)
+`,
+        animation: "slideUp .18s cubic-bezier(.2,.8,.2,1)",
+        visibility: pos ? "visible" : "hidden",
+      }}
+    >
+      {/* Public / Private */}
+      <button
+        role="menuitem"
+        onClick={() => {
+          onTogglePublic();
+          onClose();
+        }}
+        style={{
+          width: "100%",
+          height: 36,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 12px",
+          background: "transparent",
+          border: "none",
+          color: "#F5F5F7",
+          fontSize: 13,
+          fontWeight: 500,
+          letterSpacing: "-0.08px",
+          cursor: "pointer",
+          transition: "background .15s",
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,.05)")}
+        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+      >
+        <span>{isPublic ? "Make Private" : "Make Public"}</span>
+        {isPublic ? (
+          <LockRounded sx={{ fontSize: 16, color: "#F5F5F7", opacity: 0.9 }} />
+        ) : (
+          <LockOpenRounded sx={{ fontSize: 16, color: "#F5F5F7", opacity: 0.9 }} />
+        )}
+      </button>
+
+      <div style={{ height: 0.5, background: "rgba(255,255,255,.08)" }} />
+
+      {/* Delete Playlist */}
+      <button
+        role="menuitem"
+        onClick={() => {
+          onRequestDelete();
+          onClose();
+        }}
+        style={{
+          width: "100%",
+          height: 36,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "0 12px",
+          background: "transparent",
+          border: "none",
+          color: "#F5F5F7",
+          fontSize: 13,
+          fontWeight: 500,
+          cursor: "pointer",
+          transition: "background .15s",
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,.05)")}
+        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+      >
+        <span>Delete Playlist</span>
+        <DeleteOutlineRounded sx={{ fontSize: 16, color: "#F5F5F7", opacity: 0.9 }} />
+      </button>
     </div>,
     document.body,
   );
@@ -462,16 +573,10 @@ const PlaylistPage = () => {
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
   const [songs, setSongs] = useState<PlaylistSong[]>([]);
   const [loading, setLoading] = useState(true);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [playlistMenuAnchor, setPlaylistMenuAnchor] = useState<HTMLButtonElement | null>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [togglingLike, setTogglingLike] = useState<Set<string>>(new Set());
   const [activeMenu, setActiveMenu] = useState<SongMenuState | null>(null);
-
-  const menuRef = useRef<HTMLDivElement>(null);
-  useClickOutside(menuRef as React.RefObject<HTMLElement>, () => {
-    setMenuOpen(false);
-    setShowDeleteDialog(false);
-  });
 
   useEffect(() => {
     if (!id) return;
@@ -514,7 +619,6 @@ const PlaylistPage = () => {
     if (!id || !playlist) return;
     await updatePlaylist(id, { isPublic: !playlist.isPublic });
     setPlaylist((p) => (p ? { ...p, isPublic: !p.isPublic } : p));
-    setMenuOpen(false);
   }, [id, playlist]);
 
   const handleLikeToggle = useCallback(
@@ -535,6 +639,17 @@ const PlaylistPage = () => {
     },
     [user, togglingLike],
   );
+
+  /**
+   * Opens (or closes if already open) the header's playlist options menu.
+   */
+  const handleOpenPlaylistMenu = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    const btn = e.currentTarget;
+    setPlaylistMenuAnchor((prev) => (prev ? null : btn));
+  }, []);
+
+  const handleClosePlaylistMenu = useCallback(() => setPlaylistMenuAnchor(null), []);
 
   /**
    * Opens (or closes if same song) the context menu for a song row.
@@ -619,158 +734,16 @@ const PlaylistPage = () => {
             </button>
 
             {isOwner && (
-              <div className="relative" ref={menuRef}>
-                <button
-                  onClick={() => setMenuOpen((v) => !v)}
-                  className="p-1.5"
-                  style={{ color: P }}
-                >
-                  <MoreHorizIcon sx={{ fontSize: 22 }} />
-                </button>
-
-                {menuOpen && (
-                  <div
-                    className="absolute right-0 mt-2 z-50 overflow-hidden"
-                    style={{
-                      width: 200,
-
-                      background: "rgba(28,28,30,.82)",
-
-                      backdropFilter: "blur(40px) saturate(120%)",
-                      WebkitBackdropFilter: "blur(40px) saturate(120%)",
-
-                      border: "1px solid rgba(255,255,255,.12)",
-
-                      borderRadius: 10,
-
-                      overflow: "hidden",
-
-                      boxShadow: `
-  0 24px 60px rgba(0,0,0,.48),
-  0 10px 24px rgba(0,0,0,.28),
-  0 2px 6px rgba(0,0,0,.18),
-  inset 0 1px 0 rgba(255,255,255,.14),
-  inset 0 -1px 0 rgba(0,0,0,.25),
-  inset 0 0 0 1px rgba(255,255,255,.03)
-`,
-
-                      animation:
-                        "slideUp .18s cubic-bezier(.2,.8,.2,1)",
-                    }}
-                  >
-                    {/* Public / Private */}
-                    <button
-                      onClick={togglePublic}
-                      style={{
-                        width: "100%",
-                        height: 36,
-
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-
-                        padding: "0 12px",
-
-                        background: "transparent",
-                        border: "none",
-
-                        color: "#F5F5F7",
-
-                        fontSize: 13,
-                        fontWeight: 500,
-                        letterSpacing: "-0.08px",
-
-                        cursor: "pointer",
-
-                        transition: "background .15s",
-                      }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.background = "rgba(255,255,255,.05)")
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.background = "transparent")
-                      }
-                    >
-                      <span>
-                        {playlist.isPublic
-                          ? "Make Private"
-                          : "Make Public"}
-                      </span>
-
-                      {playlist.isPublic ? (
-                        <LockRounded
-                          sx={{
-                            fontSize: 16,
-                            color: "#F5F5F7",
-                            opacity: 0.9,
-                          }}
-                        />
-                      ) : (
-                        <LockOpenRounded
-                          sx={{
-                            fontSize: 16,
-                            color: "#F5F5F7",
-                            opacity: 0.9,
-                          }}
-                        />
-                      )}
-                    </button>
-
-                    <div
-                      style={{
-                        height: 0.5,
-                        background: "rgba(255,255,255,.08)",
-                      }}
-                    />
-
-                    {/* Delete Playlist */}
-                    <button
-                      onClick={() => {
-                        setShowDeleteDialog(true);
-                        setMenuOpen(false);
-                      }}
-                      style={{
-                        width: "100%",
-                        height: 36,
-
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-
-                        padding: "0 12px",
-
-                        background: "transparent",
-                        border: "none",
-
-                        color: "#F5F5F7",
-
-                        fontSize: 13,
-                        fontWeight: 500,
-
-                        cursor: "pointer",
-
-                        transition: "background .15s",
-                      }}
-                      onMouseEnter={(e) =>
-                        (e.currentTarget.style.background = "rgba(255,255,255,.05)")
-                      }
-                      onMouseLeave={(e) =>
-                        (e.currentTarget.style.background = "transparent")
-                      }
-                    >
-                      <span>Delete Playlist</span>
-
-                      <DeleteOutlineRounded
-                        sx={{
-                          fontSize: 16,
-                          color: "#F5F5F7",
-                          opacity: 0.9,
-                        }}
-                      />
-                    </button>
-                  </div>
-                )}
-              </div>
+              <button
+                onClick={handleOpenPlaylistMenu}
+                aria-label="Playlist options"
+                aria-haspopup="menu"
+                aria-expanded={!!playlistMenuAnchor}
+                className="p-1.5"
+                style={{ color: P }}
+              >
+                <MoreHorizIcon sx={{ fontSize: 22 }} />
+              </button>
             )}
           </div>
         </div>
@@ -818,31 +791,22 @@ const PlaylistPage = () => {
                       )}
                       {playlist.isPublic ? "Public" : "Private"}
                     </span>
-                    <span
-                      className="w-[3px] h-[3px] rounded-full"
-                      style={{ background: TEXT_TER }}
-                    />
+                    <span className="w-[3px] h-[3px] rounded-full" style={{ background: TEXT_TER }} />
                     <span>
                       {songs.length} {songs.length === 1 ? "song" : "songs"}
                     </span>
-                    <span
-                      className="w-[3px] h-[3px] rounded-full"
-                      style={{ background: TEXT_TER }}
-                    />
+                    <span className="w-[3px] h-[3px] rounded-full" style={{ background: TEXT_TER }} />
                     <span>{totalMins} min</span>
                     {createdDate && (
                       <>
-                        <span
-                          className="w-[3px] h-[3px] rounded-full"
-                          style={{ background: TEXT_TER }}
-                        />
+                        <span className="w-[3px] h-[3px] rounded-full" style={{ background: TEXT_TER }} />
                         <span>{createdDate}</span>
                       </>
                     )}
                   </div>
                 }
                 actions={
-                  <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+                  <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto mt-4 sm:mt-0">
                     <div className="flex w-full gap-2 sm:w-auto">
                       <PillBtn
                         onClick={handlePlayAll}
@@ -903,10 +867,7 @@ const PlaylistPage = () => {
               {/* Desktop Header */}
               <div
                 className="hidden sm:grid items-center h-11 px-0 border-b"
-                style={{
-                  borderColor: BORDER,
-                  gridTemplateColumns: TABLE_COLS,
-                }}
+                style={{ borderColor: BORDER, gridTemplateColumns: TABLE_COLS }}
               >
                 <span className="text-[12px] font-medium pl-1" style={{ color: TEXT_TER }}>
                   Song
@@ -924,8 +885,6 @@ const PlaylistPage = () => {
               </div>
 
               {songs.map((song, i) => {
-                // const isLiked = likedSongIds.has(song.id);
-                // const isToggling = togglingLike.has(song.id);
                 const rowMenuOpen = activeMenu?.songId === song.id;
 
                 return (
@@ -933,9 +892,7 @@ const PlaylistPage = () => {
                     key={song.id}
                     onClick={() => playTrack(tracks[i], tracks)}
                     className="group cursor-pointer transition-colors"
-                    style={{
-                      background: rowMenuOpen ? "rgba(255,255,255,0.06)" : undefined,
-                    }}
+                    style={{ background: rowMenuOpen ? "rgba(255,255,255,0.06)" : undefined }}
                     onMouseEnter={(e) => {
                       if (!rowMenuOpen) e.currentTarget.style.background = "rgba(255,255,255,0.04)";
                     }}
@@ -948,7 +905,6 @@ const PlaylistPage = () => {
                       className="flex sm:hidden items-center gap-3 px-2 h-[64px] border-b"
                       style={{ borderColor: BORDER }}
                     >
-                      {/* Artwork */}
                       <div className="w-10 h-10 rounded-md overflow-hidden shrink-0">
                         {song.coverUrl || song.imageUrl ? (
                           <img
@@ -964,7 +920,6 @@ const PlaylistPage = () => {
                         )}
                       </div>
 
-                      {/* Info */}
                       <div className="flex-1 min-w-0">
                         <p className="truncate text-[13px]" style={{ color: TEXT_PRI }}>
                           {song.title}
@@ -974,28 +929,13 @@ const PlaylistPage = () => {
                         </p>
                       </div>
 
-                      {/* More button */}
                       <button
                         onClick={(e) => handleOpenMenu(e, song)}
                         aria-label={`More options for ${song.title}`}
                         aria-expanded={rowMenuOpen}
                         aria-haspopup="menu"
-                        className="
-                        flex
-                        items-center
-                        justify-center
-                        shrink-0
-                        w-11
-                        h-11
-                        transition-all
-                        duration-200
-                      "
-                        onMouseEnter={(e) =>
-                          (e.currentTarget.style.color = "#fa243c")
-                        }
-                        onMouseLeave={(e) =>
-                          (e.currentTarget.style.color = "transparent")
-                        }
+                        className="flex items-center justify-center shrink-0 w-11 h-11 transition-all duration-200"
+                        style={{ color: "#fa243c" }}
                       >
                         <MoreHorizIcon sx={{ fontSize: 22 }} />
                       </button>
@@ -1004,12 +944,8 @@ const PlaylistPage = () => {
                     {/* ── Desktop row ── */}
                     <div
                       className="hidden sm:grid items-center h-[56px] px-1 border-b"
-                      style={{
-                        borderColor: BORDER,
-                        gridTemplateColumns: TABLE_COLS,
-                      }}
+                      style={{ borderColor: BORDER, gridTemplateColumns: TABLE_COLS }}
                     >
-                      {/* Song + cover */}
                       <div className="flex items-center gap-4 min-w-0 w-full pl-1">
                         <div className="w-9 h-9 rounded-md overflow-hidden shrink-0">
                           {song.coverUrl || song.imageUrl ? (
@@ -1032,46 +968,25 @@ const PlaylistPage = () => {
                         </div>
                       </div>
 
-                      {/* Artist */}
                       <div className="truncate pr-4 text-[13px]" style={{ color: TEXT_SEC }}>
                         {song.artist}
                       </div>
 
-                      {/* Album */}
                       <div className="hidden lg:block truncate pr-4 text-[13px]" style={{ color: TEXT_SEC }}>
                         {song.album || "—"}
                       </div>
 
-                      {/* Time */}
                       <div className="text-right text-[12px] tabular-nums" style={{ color: TEXT_TER }}>
                         {fmtDur(song.duration)}
                       </div>
 
-                      {/* More button */}
                       <button
                         onClick={(e) => handleOpenMenu(e, song)}
                         aria-label={`More options for ${song.title}`}
                         aria-expanded={rowMenuOpen}
                         aria-haspopup="menu"
-                        className="
-                        flex
-                        items-center
-                        justify-center
-                        pl-2
-                        transition-colors
-                        duration-200
-                        hover:text-[#fa243c]
-                      "
-                        onMouseEnter={(e) =>
-                          (e.currentTarget.style.color = "#fa243c")
-                        }
-                        onMouseLeave={(e) =>
-                          (e.currentTarget.style.color = "white")
-                        }
-                        style={{
-                          background: "transparent",
-                          opacity: rowMenuOpen ? 1 : undefined,
-                        }}
+                        className="flex items-center justify-center pl-2 transition-colors duration-200 hover:text-[#fa243c]"
+                        style={{ background: "transparent", opacity: rowMenuOpen ? 1 : undefined, color: "#fa243c" }}
                       >
                         <MoreHorizIcon sx={{ fontSize: 16 }} />
                       </button>
@@ -1102,7 +1017,7 @@ const PlaylistPage = () => {
           )}
         </div>
 
-        {/* ── Floating context menu (portal-like, fixed position) ── */}
+        {/* ── Floating context menu (portal, fixed position) ── */}
         {activeMenu && (
           <SongContextMenu
             menu={activeMenu}
@@ -1112,132 +1027,101 @@ const PlaylistPage = () => {
             onClose={handleCloseMenu}
           />
         )}
+
+        {/* ── Playlist header options menu (portal, fixed position) ── */}
+        {playlistMenuAnchor && (
+          <PlaylistOptionsMenu
+            anchorEl={playlistMenuAnchor}
+            isPublic={!!playlist.isPublic}
+            onTogglePublic={togglePublic}
+            onRequestDelete={() => setShowDeleteDialog(true)}
+            onClose={handleClosePlaylistMenu}
+          />
+        )}
       </div>
 
       {showDeleteDialog && (
-        <>
-          {/* Backdrop */}
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-6"
+          role="alertdialog"
+          aria-modal="true"
+        >
+          {/* backdrop — matches LoginPage exactly */}
           <div
+            className="absolute inset-0 animate-in fade-in duration-200"
+            style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
             onClick={() => setShowDeleteDialog(false)}
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(0,0,0,.42)",
-              backdropFilter: "blur(10px)",
-              WebkitBackdropFilter: "blur(10px)",
-              zIndex: 9998,
-            }}
+            aria-hidden="true"
           />
 
-          {/* Dialog */}
+          {/* pop card */}
           <div
+            className="relative w-full max-w-[320px] rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
             style={{
-              position: "fixed",
-              left: "50%",
-              top: "50%",
-              transform: "translate(-50%, -50%)",
+              background: "rgba(31, 31, 31, 0.55)", // #1f1f1f translucent glass tint
 
-              width: 270,
+              backdropFilter: "blur(30px) saturate(180%) brightness(1.05)",
+              WebkitBackdropFilter: "blur(30px) saturate(180%) brightness(1.05)",
 
-              background: "rgba(30,30,32,.78)",
+              border: "1px solid rgba(255,255,255,0.06)",
 
-              backdropFilter:
-                "blur(48px) saturate(220%)",
-
-              WebkitBackdropFilter:
-                "blur(48px) saturate(220%)",
-
-              border: "0.5px solid rgba(255,255,255,.08)",
-
-              borderRadius: 14,
-
-              overflow: "hidden",
-
-              boxShadow:
-                "0 25px 70px rgba(0,0,0,.45)",
-
-              zIndex: 9999,
+              boxShadow: `
+          inset 0 1px 0 rgba(255,255,255,0.08),
+          inset 0 -1px 0 rgba(255,255,255,0.02),
+          0 12px 40px rgba(0,0,0,0.35)
+        `,
             }}
           >
-            <div
-              style={{
-                padding: "18px 18px 14px",
-                textAlign: "center",
-              }}
-            >
-              <div
-                style={{
-                  color: "#F5F5F7",
-                  fontSize: 15,
-                  fontWeight: 500,
-                }}
+            <div className="flex flex-col items-center text-center px-6 pt-4 pb-5">
+              <p
+                className="text-[16px] font-semibold leading-snug mb-1"
+                style={{ color: "#f5f5f7" }}
               >
-                Delete Playlist?
-              </div>
-
-              <div
-                style={{
-                  marginTop: 8,
-                  color: "rgba(235,235,245,.62)",
-                  fontSize: 13,
-                  lineHeight: 1.45,
-                }}
+                {/* Delete playlist? */}
+                <DeleteRounded sx={{fontSize: 28}}/>
+              </p>
+              <p
+                className="text-[13px] mt-2 leading-snug"
+                style={{ color: "rgba(245,245,247,0.65)" }}
               >
-                This playlist will be permanently deleted.
-                This action cannot be undone.
-              </div>
+                This playlist will be permanently deleted. This action cannot be undone.
+              </p>
             </div>
 
-            <div
-              style={{
-                height: 0.5,
-                background: "rgba(255,255,255,.08)",
-              }}
-            />
-
             <button
+              type="button"
               onClick={() => {
                 handleDelete();
                 setShowDeleteDialog(false);
               }}
+              className="w-full py-3 text-[15px] font-semibold transition-colors duration-150"
               style={{
-                width: "100%",
-                height: 44,
-                border: "none",
-                background: "transparent",
                 color: "#ff453a",
-                fontSize: 16,
-                fontWeight: 400,
-                cursor: "pointer",
+                borderTop: "1px solid rgba(255,255,255,0.08)",
+                backgroundColor: "transparent",
               }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.06)")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
             >
-              Delete Playlist
+              Delete playlist
             </button>
 
-            <div
-              style={{
-                height: 0.5,
-                background: "rgba(255,255,255,.08)",
-              }}
-            />
-
             <button
+              type="button"
               onClick={() => setShowDeleteDialog(false)}
+              className="w-full py-3 text-[15px] font-semibold transition-colors duration-150"
               style={{
-                width: "100%",
-                height: 44,
-                border: "none",
-                background: "transparent",
-                color: "#0A84FF",
-                fontSize: 16,
-                fontWeight: 500,
-                cursor: "pointer",
+                color: "#f5f5f7",
+                borderTop: "1px solid rgba(255,255,255,0.08)",
+                backgroundColor: "transparent",
               }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.06)")}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
             >
               Cancel
             </button>
           </div>
-        </>
+        </div>
       )}
     </div>
   );
